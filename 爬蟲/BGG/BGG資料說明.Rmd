@@ -1,0 +1,88 @@
+---
+title: "BGG 說明檔"
+author: '610811101'
+date: "2021/3/22"
+output: html_document
+---
+
+
+# BGG 資料說明 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## rated.RData 
+
+```{r}
+load("G:/我的雲端硬碟/BGG/rated.RData")
+load("G:/我的雲端硬碟/BGG/rated2.RData")
+
+```
+
+
+這兩筆資料都是list ，每個元素都是一個data.frame ，每個data.frame都有三個變數。 
+元素名稱代表桌遊在BGG的編號  
+username : 評價人的BGG id   
+yearregistered : 評價人的BGG註冊年分   
+rating : 對該桌遊的評價  
+
+抓這兩個資料的code 是api.R。
+
+## data.RData 
+
+```{r}
+load("G:/我的雲端硬碟/BGG/data.RData")
+colnames(data)
+```
+
+這筆資料是主要的資料   
+由api-data.R 和 api-description.R 這兩個檔案抓取的。  
+在跑api-data.R前，需要先跑api_id.R，取得id.RData
+
+## id.RData  
+
+```{r}
+load("G:/我的雲端硬碟/BGG/id.RData")
+```
+
+
+在抓取主要的資料前，需要知道所有的BGG編號，這個檔案是所有會去爬取的資料的編號，由api_id.R抓取。
+
+## honor.RData 
+
+
+```{r}
+load("G:/我的雲端硬碟/BGG/honor.RData")
+```
+
+這是得獎資料，其中honor是所有獎項，honor_data是得獎桌遊以及對應的獎項，由api-honor.R抓取。
+
+
+## data_7wonder.RData
+
+
+```{r}
+load("G:/我的雲端硬碟/BGG/data_7wonder.RData")
+
+```
+
+
+這筆資料並不是爬蟲得到的，是由[github](https://github.com/gsajulia/7wondersDataMinning)下載之後，由7wonder_data.R整理後得到的。
+
+
+
+## data_test.RData
+
+```{r}
+load("G:/我的雲端硬碟/BGG/data_test.RData")
+load("G:/我的雲端硬碟/BGG/data_7wonder_2.RData")
+```
+
+
+這是BGA上，玩家玩7wonder的紀錄。沒記錯的話，抓這個資料要高級會員，而且爬蟲的執行也會比較麻煩。
+爬蟲的檔案是BGA-7wonder.R
+
+
+
+

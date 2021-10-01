@@ -1,0 +1,13 @@
+name: Central_limit_theorem
+title: Central_limit_theorem
+username:
+account: chenxuepu
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 1453075
+bundleId: 2654959
+url: https://chenxuepu.shinyapps.io/Central_limit_theorem/
+when: 1575967220.61121
+asMultiple: FALSE
+asStatic: FALSE
+ignoredFiles: app_old.R
