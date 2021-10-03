@@ -1,0 +1,155 @@
+---
+title: "OLR"
+author: '610811101 陳學蒲'
+date: "2020/10/10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(oglmx) # oglmx
+library(magrittr)
+```
+
+我採用的是第一個總經變數。   
+
+如果要用其他資料，在程式碼中出現
+"S.P.500.return"的部分，都要更改為你的資料對應的總經變數名稱。  
+
+這個程式，我就不做太多的說明，請各位自行發揮。  
+
+程式碼的部分，請到homework1.Rmd中查看。   
+
+如果有疑問，可以找我詢問。   
+
+
+
+```{r}
+setwd("G:/我的雲端硬碟/統計專論/作業一")
+data <- read.csv("G:/我的雲端硬碟/統計專論/作業一/data_1.csv")
+categories_levels <- c("d","c","cc","ccc","b","bb","bbb","a","aa","aaa")
+
+data$LTR.rating.categories <- factor(data$LTR.rating.categories,levels = categories_levels)
+
+print("LTR.rating.categories的分布狀況")
+summary(data$LTR.rating.categories)
+data <- data[!(is.na(data) %>% rowSums()),] 
+# is.na(data) %>% colSums()
+# data$constant <- 1
+print("去除了缺失值後，LTR.rating.categories的分布狀況")
+summary(data$LTR.rating.categories)
+
+print("25,50,75分位數")
+qua <- quantile(as.numeric(data$LTR.rating.categories),1:3/4,na.rm = T)
+categories_levels[qua] %>% `names<-`(names(qua))
+```
+
+
+# 摘要統計量     
+
+這邊可以有很多做法，不一定要用我的。
+
+
+mean 
+```{r}
+colname <- c("IC","OM","TDL","DP","MBA","RDA","REA","CEA","CBA","TA","beta","sigma","size","S.P.500.return")
+data_stat <- data.frame("d到b" = colMeans(data[data$LTR.rating.categories %in% categories_levels[1:qua[1]],colname]),
+           "b到bb" = colMeans(data[data$LTR.rating.categories %in% categories_levels[qua[1]:qua[2]],colname]),
+           "bb到bbb" = colMeans(data[data$LTR.rating.categories %in% categories_levels[qua[2]:qua[3]],colname]),
+           "bbb到aaa" = colMeans(data[data$LTR.rating.categories %in% categories_levels[qua[3]:length(categories_levels)],colname]))
+
+data_stat
+```
+
+Median
+```{r}
+data_stat_2 <- data.frame("d到b" = colMedians(data[data$LTR.rating.categories %in% categories_levels[1:qua[1]],colname]),
+           "b到bb" = colMedians(data[data$LTR.rating.categories %in% categories_levels[qua[1]:qua[2]],colname]),
+           "bb到bbb" = colMedians(data[data$LTR.rating.categories %in% categories_levels[qua[2]:qua[3]],colname]),
+           "bbb到aaa" = colMedians(data[data$LTR.rating.categories %in% categories_levels[qua[3]:length(categories_levels)],colname]))
+
+data_stat_2
+```
+
+
+
+
+
+
+# model 
+
+這邊使用了一個package "oglmx"，他可以固定係數或是是否保留截距項。  
+但是保留的參數，在model的summary看不到，要去看allparams才有。   
+
+
+```{r warning=FALSE}
+olm_c <- oglmx(LTR.rating.categories~ IC + OM + TDL + DP + MBA + RDA + REA + CEA + CBA + TA + beta + sigma + size +  S.P.500.return,data = data, delta=0,threshparam = c(0,rep(NA,7)),link =  "logit")
+
+olm_nc <- oglmx(LTR.rating.categories~ IC + OM + TDL + DP + MBA + RDA + REA + CEA + CBA + TA + beta + sigma + size +  S.P.500.return,data = data, constantMEAN=F, constantSD= F, delta=0,link =  "logit")
+
+olm_coef1Setting1 <- oglmx(LTR.rating.categories~ IC + OM + TDL + DP + MBA + RDA + REA + CEA + CBA + TA + beta + sigma + size +  S.P.500.return,data = data, constantMEAN=F, constantSD= T,delta=0, beta = c(1,rep(NA,13)),link =  "logit")
+
+
+```
+
+
+
+
+
+
+
+## 沒有截距項的ordered logistic regression  
+
+summary  
+
+```{r}
+summary(olm_c)
+```
+
+allparams   
+ 
+```{r}
+olm_c$allparams
+```
+
+
+## 有截距項的ordered logistic regression  
+
+
+summary  
+
+
+```{r}
+summary(olm_nc)
+```
+
+allparams   
+
+```{r}
+olm_nc$allparams
+```
+
+
+## 首項係數為1的ordered logistic regression  
+
+
+
+summary  
+
+
+```{r}
+summary(olm_coef1Setting1)
+
+```
+
+allparams   
+
+```{r}
+olm_coef1Setting1$allparams
+```
+
+
+

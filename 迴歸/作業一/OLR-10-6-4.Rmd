@@ -1,0 +1,254 @@
+---
+title: "OLR"
+author: '610811101'
+date: "2020/10/6"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+```{r}
+# options(digits = 5)
+library(magrittr)
+library(ordinal) # clm
+library(MASS) # polr
+library(stats4)
+setwd("G:/我的雲端硬碟/統計專論/作業一")
+data <- read.csv("G:/我的雲端硬碟/統計專論/作業一/data_1.csv")
+# summary(data$LTR.rating.categories)
+
+# names(data)
+categories_levels <- c("d","c","cc","ccc","b","bb","bbb","a","aa","aaa")
+data$LTR.rating.categories <- factor(data$LTR.rating.categories,levels = categories_levels)
+
+print("LTR.rating.categories的分布狀況")
+summary(data$LTR.rating.categories)
+data <- data[!(is.na(data) %>% rowSums()),] 
+# is.na(data) %>% colSums()
+# data$constant <- 1
+print("去除了缺失值後，LTR.rating.categories的分布狀況")
+summary(data$LTR.rating.categories)
+
+print("25,50,75分位數  ")
+qua <- quantile(as.numeric(data$LTR.rating.categories),1:3/4,na.rm = T)
+categories_levels[qua] %>% `names<-`(names(qua))
+```
+
+
+```{r}
+# clm(LTR.rating.categories~.-gvkey-Year,data = data,threshold = "flexible")
+
+# clm(LTR.rating.categories~ constant + OM + TDL + DP + MBA + RDA + REA + CEA + CBA + TA + beta + sigma + size + IC + S.P.500.return,data = data,threshold = "flexible")
+
+# x <- polr(LTR.rating.categories~ IC + OM + TDL + DP + MBA + RDA + REA + CEA + CBA + TA + beta + sigma + size +  S.P.500.return,data = data,Hess = T)
+# 
+# # x$Hessian
+# summary(x)
+# 
+# y_hat <- predict(object = x,data)
+# table(y_hat,data$LTR.rating.categories)
+# library(caret)
+# confusionMatrix(table(y_hat,data$LTR.rating.categories))
+```
+
+
+```{r}
+# x <- polr(LTR.rating.categories~ 1+IC + OM + TDL + DP + MBA + RDA + REA + CEA + CBA + TA + beta + sigma + size +  S.P.500.return,data = data,Hess = T)
+# x
+```
+
+
+
+```{r}
+# beta_1=1;beta_2=1;beta_3=1;beta_4=1;beta_5=1;beta_6=1;beta_7=1;beta_8=1;beta_9=1;beta_10=1;beta_11=1;beta_12=1;beta_13=1;beta_14=1;t_1=1;t_2=1;t_3=1;t_4=1;t_5=1;t_6=1;t_7=1;t_8=1;t_9=1;constant=1
+attach(data)
+# 沒有截距項的
+
+
+f_1 <- function(beta_1,beta_2,beta_3,beta_4,beta_5,beta_6,beta_7,beta_8,beta_9,beta_10,beta_11,beta_12,beta_13,beta_14,t_1,t_2,t_3,t_4,t_5,t_6,t_7,t_8,t_9){
+  y_hat <- beta_1*IC+beta_2*OM+beta_3*TDL+beta_4*DP+beta_5*MBA+beta_6*RDA+beta_7*REA+beta_8*CEA+beta_9*CBA+beta_10*TA+beta_11*beta+beta_12*sigma+beta_13*size+beta_14*S.P.500.return
+  t <- c(-Inf,cumsum(c(t_1,exp(t_2),exp(t_3),exp(t_4),exp(t_5),exp(t_3),exp(t_7),exp(t_8),exp(t_9))),Inf)
+  p <- plogis(pmin(100, t[as.numeric(LTR.rating.categories)+1]-y_hat))-plogis(pmax(-100,t[as.numeric(LTR.rating.categories)]-y_hat))
+  if (all(p > 0)) -sum(log(p)) else  1e+21
+  # -sum(log(p))
+}
+start <- list(beta_1=1,beta_2=1,beta_3=1,beta_4=1,beta_5=1,beta_6=1,beta_7=1,beta_8=1,beta_9=1,beta_10=1,beta_11=1,beta_12=1,beta_13=1,beta_14=1,t_1=1,t_2=1,t_3=1,t_4=1,t_5=1,t_6=1,t_7=1,t_8=1,t_9=1)
+# f_1_fit <- stats4::mle(f_1,start = start,nobs = nrow(data))
+# f_1_fit <- stats4::mle(f_1,start = start)
+tryCatch(
+    {
+      f_1_fit <- stats4::mle(f_1,start = start)
+    }
+    ,warning = function(war)
+        {
+
+        }
+        ,error = function(err)
+        {
+
+        }
+
+  )
+
+while(!exists("f_1_fit")){
+  for(i in 1:length(start)){
+    start[[i]] <- runif(1,min = -1,max = 1)
+  }
+  # f_1_fit <- stats4::mle(f_1,start = start)
+  tryCatch(
+    {
+       f_1_fit <- stats4::mle(f_1,start = start)
+    }
+    ,warning = function(war)
+        {
+
+        }
+        ,error = function(err)
+        {
+
+        }
+
+  )
+}
+start_1 <- start
+coeff_1 <- f_1_fit@coef
+
+```
+
+```{r}
+predict_olr_1 <- function(coeff){
+  y_hat <- coeff["beta_1"]*IC+coeff["beta_2"]*OM+coeff["beta_3"]*TDL+coeff["beta_4"]*DP+coeff["beta_5"]*MBA+coeff["beta_6"]*RDA+coeff["beta_7"]*REA+coeff["beta_8"]*CEA+coeff["beta_9"]*CBA+coeff["beta_10"]*TA+coeff["beta_11"]*beta+coeff["beta_12"]*sigma+coeff["beta_13"]*size+coeff["beta_14"]*S.P.500.return
+  t <- c(-Inf,cumsum(c(coeff["t_1"],exp(coeff["t_2"]),exp(coeff["t_3"]),exp(coeff["t_4"]),exp(coeff["t_5"]),exp(coeff["t_6"]),exp(coeff["t_7"]),exp(coeff["t_8"]),exp(coeff["t_9"]))),Inf)
+  sapply(y_hat, function(x){
+    x>t[-length(t)]&x<=t[-1L] %>% which()
+  })
+}
+y_hat_1 <- predict_olr_1(coeff_1)
+confusionMatrix(table(y_hat_1,data$LTR.rating.categories))
+```
+
+
+
+
+
+```{r}
+f_2 <- function(beta_1,beta_2,beta_3,beta_4,beta_5,beta_6,beta_7,beta_8,beta_9,beta_10,beta_11,beta_12,beta_13,beta_14,t_2,t_3,t_4,t_5,t_6,t_7,t_8,t_9,constant){
+  y_hat <- constant+beta_1*IC+beta_2*OM+beta_3*TDL+beta_4*DP+beta_5*MBA+beta_6*RDA+beta_7*REA+beta_8*CEA+beta_9*CBA+beta_10*TA+beta_11*beta+beta_12*sigma+beta_13*size+beta_14*S.P.500.return
+  t <- c(-Inf,cumsum(c(0,exp(t_2),exp(t_3),exp(t_4),exp(t_5),exp(t_3),exp(t_7),exp(t_8),exp(t_9))),Inf)
+  p <- plogis(pmin(100, t[as.numeric(LTR.rating.categories)+1]-y_hat))-plogis(pmax(-100,t[as.numeric(LTR.rating.categories)]-y_hat))
+  if (all(p > 0)) -sum(log(p)) else Inf
+}
+start <- list(beta_1=1,beta_2=1,beta_3=1,beta_4=1,beta_5=1,beta_6=1,beta_7=1,beta_8=1,beta_9=1,beta_10=1,beta_11=1,beta_12=1,beta_13=1,beta_14=1,constant=1,t_2=1,t_3=1,t_4=1,t_5=1,t_6=1,t_7=1,t_8=1,t_9=1)
+# f_2_fit <- stats4::mle(f_2,start = start,nobs = nrow(data))
+tryCatch(
+    {
+      f_2_fit <- stats4::mle(f_2,start = start)
+    }
+    ,warning = function(war)
+        {
+            
+        }
+        ,error = function(err)
+        {
+          
+        }
+  
+  )
+while(!exists("f_2_fit")){
+  for(i in 1:length(start)){
+    start[[i]] <- runif(1,min = -1,max = 1)
+  }
+  tryCatch(
+    {
+      f_2_fit <- stats4::mle(f_2,start = start)
+    }
+    ,warning = function(war)
+        {
+            
+        }
+        ,error = function(err)
+        {
+          
+        }
+  
+  )
+}
+
+start_2 <- start
+coeff_2 <- f_2_fit@coef
+```
+
+
+
+```{r}
+predict_olr_2 <- function(coeff){
+  y_hat <- coeff["constant"]+coeff["beta_1"]*IC+coeff["beta_2"]*OM+coeff["beta_3"]*TDL+coeff["beta_4"]*DP+coeff["beta_5"]*MBA+coeff["beta_6"]*RDA+coeff["beta_7"]*REA+coeff["beta_8"]*CEA+coeff["beta_9"]*CBA+coeff["beta_10"]*TA+coeff["beta_11"]*beta+coeff["beta_12"]*sigma+coeff["beta_13"]*size+coeff["beta_14"]*S.P.500.return
+  t <- c(-Inf,cumsum(c(0,exp(coeff["t_2"]),exp(coeff["t_3"]),exp(coeff["t_4"]),exp(coeff["t_5"]),exp(coeff["t_6"]),exp(coeff["t_7"]),exp(coeff["t_8"]),exp(coeff["t_9"]))),Inf)
+  sapply(y_hat, function(x){
+    x>t[-length(t)]&x<=t[-1L] %>% which()
+  })
+}
+y_hat_2 <- predict_olr_2(coeff_2)
+confusionMatrix(table(y_hat_2,data$LTR.rating.categories))
+```
+
+```{r}
+start <- list(beta_2=1,beta_3=1,beta_4=1,beta_5=1,beta_6=1,beta_7=1,beta_8=1,beta_9=1,beta_10=1,beta_11=1,beta_12=1,beta_13=1,beta_14=1,t_1=1,t_2=1,t_3=1,t_4=1,t_5=1,t_6=1,t_7=1,t_8=1,t_9=1)
+# f_3_fit <- stats4::mle(f_1,start = start,fixed = list(beta_1=1),nobs = nrow(data))
+tryCatch(
+    {
+      f_3_fit <- stats4::mle(f_1,start = start,fixed = list(beta_1=1))
+    }
+    ,warning = function(war)
+        {
+            
+        }
+        ,error = function(err)
+        {
+          
+        }
+  
+  )
+while(!exists("f_3_fit")){
+  for(i in 1:length(start)){
+    start[[i]] <- runif(1,min = -1,max = 1)
+  }
+  tryCatch(
+    {
+      f_3_fit <- stats4::mle(f_1,start = start,fixed = list(beta_1=1))
+    }
+    ,warning = function(war)
+        {
+            
+        }
+        ,error = function(err)
+        {
+          
+        }
+  
+  )
+}
+
+start_3 <- start
+coeff_3 <- f_3_fit@coef
+detach(data)
+save(list = c("start_1","start_2","start_3","f_1_fit","f_2_fit","f_3_fit"),file = "model.RData")
+```
+
+
+```{r}
+y_hat_3 <- predict_olr_1(coeff_3)
+confusionMatrix(table(y_hat_3,data$LTR.rating.categories))
+```
+
+
+
+
+
+
+

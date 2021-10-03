@@ -1,0 +1,898 @@
+---
+title: "ordered logistic regression"
+author: "610811101 陳學蒲"
+date: "2020/10/18"
+always_allow_html: true
+output:
+  ioslides_presentation: 
+    widescreen: true
+    df_print: tibble 
+  slidy_presentation: default
+
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(MASS)
+library(caret)
+library(magrittr)
+library(highcharter)
+library(tidyr)
+library(tibble)
+```
+
+  
+## LTR rating categories 的分布狀況  
+
+
+```{r}
+setwd("G:/我的雲端硬碟/統計專論/作業一")
+data <- read.csv("G:/我的雲端硬碟/統計專論/作業一/data_1.csv")
+categories_levels <- c("d","c","cc","ccc","b","bb","bbb","a","aa","aaa")
+
+data$LTR.rating.categories <- factor(data$LTR.rating.categories,levels = categories_levels)
+
+# print("LTR.rating.categories的分布狀況")
+# summary(data$LTR.rating.categories)
+data <- data[!(is.na(data) %>% rowSums()),] 
+# is.na(data) %>% colSums()
+# data$constant <- 1
+print("LTR rating categories的分布狀況")
+summary(data$LTR.rating.categories)
+
+print("LTR rating categories的25,50,75分位數")
+qua <- quantile(as.numeric(data$LTR.rating.categories),1:3/4,na.rm = T)
+categories_levels[qua] %>% `names<-`(names(qua))
+```
+
+
+# 摘要統計量     
+
+
+
+## mean by Quartile    
+
+
+```{r rows.print = 20,	cols.min.print = 4 }
+colname <- c("IC","OM","TDL","DP","MBA","RDA","REA","CEA","CBA","TA","beta","sigma","size","S.P.500.return")
+data_stat <- data.frame("d到b" = colMeans(data[data$LTR.rating.categories %in% categories_levels[1:qua[1]],colname]),
+           "b到bb" = colMeans(data[data$LTR.rating.categories %in% categories_levels[qua[1]:qua[2]],colname]),
+           "bb到bbb" = colMeans(data[data$LTR.rating.categories %in% categories_levels[qua[2]:qua[3]],colname]),
+           "bbb到aaa" = colMeans(data[data$LTR.rating.categories %in% categories_levels[qua[3]:length(categories_levels)],colname]))
+# data_stat$feature <- row.names(data_stat)
+rownames_to_column(data_stat)
+```
+
+
+## 圖   
+
+```{r warning=FALSE}
+data_stat$feature <- row.names(data_stat)
+data_stat_plot <- gather(data_stat,type,value,-feature)
+hchart(data_stat_plot,"line",hcaes(x = type,y = value , group = feature),visible = FALSE)
+```
+
+
+
+```{r eval=FALSE, include=FALSE}
+data_stat_2 <- data.frame("d到b" = colMedians(data[data$LTR.rating.categories %in% categories_levels[1:qua[1]],colname]),
+           "b到bb" = colMedians(data[data$LTR.rating.categories %in% categories_levels[qua[1]:qua[2]],colname]),
+           "bb到bbb" = colMedians(data[data$LTR.rating.categories %in% categories_levels[qua[2]:qua[3]],colname]),
+           "bbb到aaa" = colMedians(data[data$LTR.rating.categories %in% categories_levels[qua[3]:length(categories_levels)],colname]))
+
+data_stat_2
+```
+
+
+## mean by every categories {.smaller}     
+
+```{r}
+exists_categories <- factor(unique(data$LTR.rating.categories),levels = categories_levels) %>% sort()
+data_stat_categories <- data.frame(matrix(nrow = length(colname),ncol = length(exists_categories))) %>%
+  `colnames<-`(exists_categories)
+for(i in 1:length(exists_categories)){
+  data_stat_categories[,i] <- colMeans(data[data$LTR.rating.categories == exists_categories[i],colname])
+}
+row.names(data_stat_categories) <- colname
+# data_stat_categories$feature <- row.names(data_stat_categories)
+rownames_to_column(data_stat_categories)
+```
+
+## 圖   
+
+```{r warning=FALSE}
+data_stat_categories$feature <- row.names(data_stat_categories)
+data_stat_categories_plot <- gather(data_stat_categories,type,value,-feature)
+hchart(data_stat_categories_plot,"line",hcaes(x = type,y = value , group = feature),visible = FALSE)
+```
+
+
+
+# model   
+
+
+
+## 沒有截距項   
+
+```{r}
+polr_1 <- function (formula, data, weights, start, ..., subset, na.action, 
+          contrasts = NULL, Hess = FALSE, model = TRUE, method = c("logistic", 
+                                                                   "probit", "loglog", "cloglog", "cauchit")) 
+{
+  m <- match.call(expand.dots = FALSE)
+  method <- match.arg(method)
+  if (is.matrix(eval.parent(m$data))) 
+    m$data <- as.data.frame(data)
+  m$start <- m$Hess <- m$method <- m$model <- m$... <- NULL
+  m[[1L]] <- quote(stats::model.frame)
+  m <- eval.parent(m)
+  Terms <- attr(m, "terms")
+  x <- model.matrix(Terms, m, contrasts)
+  xint <- match("(Intercept)", colnames(x), nomatch = 0L)
+  n <- nrow(x)
+  pc <- ncol(x)
+  cons <- attr(x, "contrasts")
+  if (xint > 0L) {
+    x <- x[, -xint, drop = FALSE]
+    pc <- pc - 1L
+  }
+  else warning("an intercept is needed and assumed")
+  wt <- model.weights(m)
+  if (!length(wt)) 
+    wt <- rep(1, n)
+  offset <- model.offset(m)
+  if (length(offset) <= 1L) 
+    offset <- rep(0, n)
+  y <- model.response(m)
+  if (!is.factor(y)) 
+    stop("response must be a factor")
+  lev <- levels(y)
+  llev <- length(lev)
+  if (llev <= 2L) 
+    stop("response must have 3 or more levels")
+  y <- unclass(y)
+  q <- llev - 1L
+  if (missing(start)) {
+    q1 <- llev%/%2L
+    y1 <- (y > q1)
+    X <- cbind(Intercept = rep(1, n), x)
+    fit <- switch(method, logistic = glm.fit(X, y1, wt, 
+                                             family = binomial(), offset = offset), probit = glm.fit(X, 
+                                                                                                     y1, wt, family = binomial("probit"), offset = offset), 
+                  loglog = glm.fit(X, y1, wt, family = binomial("probit"), 
+                                   offset = offset), cloglog = glm.fit(X, y1, wt, 
+                                                                       family = binomial("probit"), offset = offset), 
+                  cauchit = glm.fit(X, y1, wt, family = binomial("cauchit"), 
+                                    offset = offset))
+    if (!fit$converged) 
+      stop("attempt to find suitable starting values failed")
+    coefs <- fit$coefficients
+    if (any(is.na(coefs))) {
+      warning("design appears to be rank-deficient, so dropping some coefs")
+      keep <- names(coefs)[!is.na(coefs)]
+      coefs <- coefs[keep]
+      x <- x[, keep[-1L], drop = FALSE]
+      pc <- ncol(x)
+    }
+    logit <- function(p) log(p/(1 - p))
+    spacing <- logit((1L:q)/(q + 1L))
+    if (method != "logistic") 
+      spacing <- spacing/1.7
+    gammas <- -coefs[1L] + spacing - spacing[q1]
+    start <- c(coefs[-1L], gammas)
+  }
+  else if (length(start) != pc + q) 
+    stop("'start' is not of the correct length")
+  ans <- polr.fit_1(x, y, wt, start, offset, method, hessian = Hess, 
+                  ...)
+  beta <- ans$coefficients
+  zeta <- ans$zeta
+  deviance <- ans$deviance
+  res <- ans$res
+  niter <- c(f.evals = res$counts[1L], g.evals = res$counts[2L])
+  eta <- if (pc) 
+    offset + drop(x %*% beta)
+  else offset + rep(0, n)
+  pfun <- switch(method, logistic = plogis, probit = pnorm, 
+                 loglog = pgumbel, cloglog = pGumbel, cauchit = pcauchy)
+  cumpr <- matrix(pfun(matrix(zeta, n, q, byrow = TRUE) - 
+                         eta), , q)
+  fitted <- t(apply(cumpr, 1L, function(x) diff(c(0, x, 1))))
+  dimnames(fitted) <- list(row.names(m), lev)
+  fit <- list(coefficients = beta, zeta = zeta, deviance = deviance, 
+              fitted.values = fitted, lev = lev, terms = Terms, df.residual = sum(wt) - 
+                pc - q, edf = pc + q, n = sum(wt), nobs = sum(wt), 
+              call = match.call(), method = method, convergence = res$convergence, 
+              niter = niter, lp = eta)
+  if (Hess) {
+    dn <- c(names(beta), names(zeta))
+    H <- res$hessian
+    dimnames(H) <- list(dn, dn)
+    fit$Hessian <- H
+  }
+  if (model) 
+    fit$model <- m
+  fit$na.action <- attr(m, "na.action")
+  fit$contrasts <- cons
+  fit$xlevels <- .getXlevels(Terms, m)
+  class(fit) <- "polr"
+  fit
+}
+
+polr.fit_1 <- function(x, y, wt = rep(1,nrow(x)), start, offset = rep(0,nrow(x)), method = "logistic", ...)
+{
+  fmin <- function(beta) {
+    theta <- beta[pc + ind_q]
+    gamm <- c(-Inf , cumsum(c(theta[1L], exp(theta[-1L]))), Inf)
+    eta <- offset
+    if (pc) eta <- eta + drop(x %*% beta[ind_pc])
+    pr <- pfun(pmin(100, gamm[y + 1] - eta)) -
+      pfun(pmax(-100, gamm[y] - eta))
+    if (all(pr > 0)) -sum(wt * log(pr)) else Inf
+  }
+  
+  gmin <- function(beta)
+  {
+    jacobian <- function(theta) { ## dgamma by dtheta matrix
+      k <- length(theta)
+      etheta <- exp(theta)
+      mat <- matrix(0 , k, k)
+      mat[, 1L] <- rep(1, k)
+      for (i in 2L:k) mat[i:k, i] <- etheta[i]
+      mat
+    }
+    theta <- beta[pc + ind_q]
+    gamm <- c(-Inf, cumsum(c(theta[1L], exp(theta[-1L]))), Inf)
+    eta <- offset
+    if(pc) eta <- eta + drop(x %*% beta[ind_pc])
+    z1 <- pmin(100, gamm[y+1L] - eta)
+    z2 <- pmax(-100, gamm[y] - eta)
+    pr <- pfun(z1) - pfun(z2)
+    p1 <- dfun(z1); p2 <- dfun(z2)
+    g1 <- if(pc) t(x) %*% (wt*(p1 - p2)/pr) else numeric()
+    xx <- .polrY1*p1 - .polrY2*p2
+    g2 <- - t(xx) %*% (wt/pr)
+    g2 <- t(g2) %*% jacobian(theta)
+    if(all(pr > 0)) c(g1, g2) else rep(NA_real_, pc+q)
+  }
+  
+  pfun <- switch(method, logistic = plogis, probit = pnorm,
+                 loglog = pgumbel, cloglog = pGumbel, cauchit = pcauchy)
+  dfun <- switch(method, logistic = dlogis, probit = dnorm,
+                 loglog = dgumbel, cloglog = dGumbel, cauchit = dcauchy)
+  n <- nrow(x)
+  pc <- ncol(x)
+  ind_pc <- seq_len(pc)
+  lev <- levels(y)
+  if(length(lev) <= 2L) stop("response must have 3 or more levels")
+  y <- unclass(y)
+  q <- length(lev) - 1L
+  ind_q <- seq_len(q)
+  Y <- matrix(0, n, q)
+  .polrY1 <- col(Y) == y; .polrY2 <- col(Y) == (y - 1L)
+  if(missing(start)) start <- rep(0,pc+q)
+  # pc could be 0.
+  s0 <- if(pc) c(start[seq_len(pc+1L)], log(diff(start[-seq_len(pc)])))
+  else c(start[1L], log(diff(start)))
+  res <- optim(s0, fmin, gmin, method="BFGS", ...)
+  beta <- res$par[seq_len(pc)]
+  theta <- res$par[pc + ind_q]
+  zeta <- cumsum(c(theta[1L], exp(theta[-1L])))
+  deviance <- 2 * res$value
+  names(zeta) <- paste(lev[-length(lev)], lev[-1L], sep="|")
+  if(pc) names(beta) <- colnames(x)
+  list(coefficients = beta, zeta = zeta, deviance = deviance, res = res)
+}
+```
+
+
+```{r}
+no_c <- polr_1(LTR.rating.categories~ IC + OM + TDL + DP + MBA + RDA + REA + CEA + CBA + TA + beta + sigma + size +  S.P.500.return,data = data,Hess = T)
+# summary(no_c)
+no_c$coefficients
+no_c$zeta
+```
+
+
+## confusionMatrix  
+
+```{r}
+y <- predict(no_c)
+table(data$LTR.rating.categories,y,dnn = c("real","predict")) %>%  confusionMatrix()
+```
+
+
+
+
+## 有截距項   
+
+
+```{r}
+polr_2 <- function (formula, data, weights, start, ..., subset, na.action, 
+          contrasts = NULL, Hess = FALSE, model = TRUE, method = c("logistic", 
+                                                                   "probit", "loglog", "cloglog", "cauchit")) 
+{
+  m <- match.call(expand.dots = FALSE)
+  method <- match.arg(method)
+  if (is.matrix(eval.parent(m$data))) 
+    m$data <- as.data.frame(data)
+  m$start <- m$Hess <- m$method <- m$model <- m$... <- NULL
+  m[[1L]] <- quote(stats::model.frame)
+  m <- eval.parent(m)
+  Terms <- attr(m, "terms")
+  x <- model.matrix(Terms, m, contrasts)
+  xint <- match("(Intercept)", colnames(x), nomatch = 0L)
+  n <- nrow(x)
+  pc <- ncol(x)
+  cons <- attr(x, "contrasts")
+  if (xint > 0L) {
+    x <- x[, -xint, drop = FALSE]
+    pc <- pc - 1L
+  }
+  else warning("an intercept is needed and assumed")
+  wt <- model.weights(m)
+  if (!length(wt)) 
+    wt <- rep(1, n)
+  offset <- model.offset(m)
+  if (length(offset) <= 1L) 
+    offset <- rep(0, n)
+  y <- model.response(m)
+  if (!is.factor(y)) 
+    stop("response must be a factor")
+  lev <- levels(y)
+  llev <- length(lev)
+  if (llev <= 2L) 
+    stop("response must have 3 or more levels")
+  y <- unclass(y)
+  q <- llev - 1L
+  if (missing(start)) {
+    q1 <- llev%/%2L
+    y1 <- (y > q1)
+    X <- cbind(Intercept = rep(1, n), x)
+    fit <- switch(method, logistic = glm.fit(X, y1, wt, 
+                                             family = binomial(), offset = offset), probit = glm.fit(X, 
+                                                                                                     y1, wt, family = binomial("probit"), offset = offset), 
+                  loglog = glm.fit(X, y1, wt, family = binomial("probit"), 
+                                   offset = offset), cloglog = glm.fit(X, y1, wt, 
+                                                                       family = binomial("probit"), offset = offset), 
+                  cauchit = glm.fit(X, y1, wt, family = binomial("cauchit"), 
+                                    offset = offset))
+    if (!fit$converged) 
+      stop("attempt to find suitable starting values failed")
+    coefs <- fit$coefficients
+    if (any(is.na(coefs))) {
+      warning("design appears to be rank-deficient, so dropping some coefs")
+      keep <- names(coefs)[!is.na(coefs)]
+      coefs <- coefs[keep]
+      x <- x[, keep[-1L], drop = FALSE]
+      pc <- ncol(x)+1
+    }
+    logit <- function(p) log(p/(1 - p))
+    spacing <- logit((1L:q)/(q + 1L))
+    if (method != "logistic") 
+      spacing <- spacing/1.7
+    gammas <-  spacing - spacing[1L]
+    start <- c(coefs, gammas[-1L])
+  }
+  else if (length(start) != pc + q) 
+    stop("'start' is not of the correct length")
+  xx <- matrix(1,nrow = nrow(x),1) %>% `colnames<-`("Intercept")
+  x <- cbind(xx,x)
+  ans <- polr.fit_2(x, y, wt, start, offset, method, hessian = Hess, 
+                  ...)
+  beta <- ans$coefficients
+  zeta <- ans$zeta
+  deviance <- ans$deviance
+  res <- ans$res
+  niter <- c(f.evals = res$counts[1L], g.evals = res$counts[2L])
+  eta <- if (pc) 
+    offset + drop(x %*% beta)
+  else offset + rep(0, n)
+  pfun <- switch(method, logistic = plogis, probit = pnorm, 
+                 loglog = pgumbel, cloglog = pGumbel, cauchit = pcauchy)
+  cumpr <- matrix(pfun(matrix(zeta, n, q, byrow = TRUE) - 
+                         eta), , q)
+  fitted <- t(apply(cumpr, 1L, function(x) diff(c(0, x, 1))))
+  dimnames(fitted) <- list(row.names(m), lev)
+  fit <- list(coefficients = beta, zeta = zeta, deviance = deviance, 
+              fitted.values = fitted, lev = lev, terms = Terms, df.residual = sum(wt) - 
+                pc - q, edf = pc + q, n = sum(wt), nobs = sum(wt), 
+              call = match.call(), method = method, convergence = res$convergence, 
+              niter = niter, lp = eta)
+  if (Hess) {
+    dn <- c(names(beta), names(zeta))
+    H <- res$hessian
+    dimnames(H) <- list(dn, dn)
+    fit$Hessian <- H
+  }
+  if (model) 
+    fit$model <- m
+  fit$na.action <- attr(m, "na.action")
+  fit$contrasts <- cons
+  fit$xlevels <- .getXlevels(Terms, m)
+  class(fit) <- "polr"
+  fit
+}
+
+polr.fit_2 <- function(x, y, wt = rep(1,nrow(x)), start, offset = rep(0,nrow(x)), method = "logistic", ...)
+{
+  fmin <- function(beta) {
+    theta <- beta[pc + ind_q]
+    gamm <- c(-Inf , cumsum(c(0, exp(theta))), Inf)
+    eta <- offset
+    if (pc) eta <- eta + drop(x %*% beta[ind_pc])
+    pr <- pfun(pmin(100, gamm[y + 1] - eta)) -
+      pfun(pmax(-800, gamm[y] - eta))
+    if (all(pr > 0)) -sum(wt * log(pr)) else Inf
+  }
+  
+  gmin <- function(beta)
+  {
+    jacobian <- function(theta) { ## dgamma by dtheta matrix
+      k <- length(theta)
+      etheta <- exp(theta)
+      mat <- matrix(0 , k, k)
+      # mat[, 1L] <- rep(1, k)
+      for (i in 1L:k) mat[i:k, i] <- etheta[i]
+      mat
+    }
+    theta <- beta[pc + ind_q]
+    gamm <- c(-Inf, cumsum(c(0, exp(theta))), Inf)
+    eta <- offset
+    if(pc) eta <- eta + drop(x %*% beta[ind_pc])
+    z1 <- pmin(100, gamm[y+1L] - eta)
+    z2 <- pmax(-100, gamm[y] - eta)
+    pr <- pfun(z1) - pfun(z2)
+    p1 <- dfun(z1); p2 <- dfun(z2)
+    g1 <- if(pc) t(x) %*% (wt*(p1 - p2)/pr) else numeric()
+    xx <- .polrY1*p1 - .polrY2*p2
+    g2 <- - t(xx) %*% (wt/pr)
+    g2 <- t(g2) %*% jacobian(theta)
+    if(all(pr > 0)) c(g1, g2) else rep(NA_real_, pc+q)
+  }
+  
+  pfun <- switch(method, logistic = plogis, probit = pnorm,
+                 loglog = pgumbel, cloglog = pGumbel, cauchit = pcauchy)
+  dfun <- switch(method, logistic = dlogis, probit = dnorm,
+                 loglog = dgumbel, cloglog = dGumbel, cauchit = dcauchy)
+  n <- nrow(x)
+  pc <- ncol(x)
+  ind_pc <- seq_len(pc)
+  lev <- levels(y)
+  if(length(lev) <= 2L) stop("response must have 3 or more levels")
+  y <- unclass(y)
+  q <- length(lev) - 2L
+  ind_q <- seq_len(q)
+  Y <- matrix(0, n, q)
+  .polrY1 <- col(Y) == y; .polrY2 <- col(Y) == (y - 1L)
+  if(missing(start)) start <- rep(0,pc+q)
+  # pc could be 0.
+  s0 <- if(pc) c(start[seq_len(pc+1L)], log(diff(start[-seq_len(pc)])))
+  else c(start[1L], log(diff(start)))
+  # res <- optim(s0, fmin, gmin, method="BFGS", ...)
+  res <- optim(s0, fmin, method="BFGS", ...)
+
+  beta <- res$par[seq_len(pc)]
+  theta <- res$par[pc + ind_q]
+  zeta <- cumsum(c(0, exp(theta)))
+  deviance <- 2 * res$value
+  names(zeta) <- paste(lev[-length(lev)], lev[-1L], sep="|")
+  if(pc) names(beta) <- colnames(x)
+  list(coefficients = beta, zeta = zeta, deviance = deviance, res = res)
+}
+
+
+
+```
+
+
+```{r}
+has_c <- polr_2(LTR.rating.categories~ IC + OM + TDL + DP + MBA + RDA + REA + CEA + CBA + TA + beta + sigma + size +  S.P.500.return,data = data)
+# summary(has_c)
+# has_c
+has_c$coefficients
+has_c$zeta
+```
+
+
+## confusionMatrix  
+
+```{r}
+y_2 <- predict(has_c)
+table(data$LTR.rating.categories,y_2,dnn = c("real","predict")) %>%  confusionMatrix()
+```
+
+
+## 首項係數為1   
+
+```{r eval=FALSE, include=FALSE}
+
+polr_3 <- function (formula, data, weights, start, ..., subset, na.action, 
+          contrasts = NULL, Hess = FALSE, model = TRUE, method = c("logistic", 
+                                                                   "probit", "loglog", "cloglog", "cauchit")) 
+{
+  m <- match.call(expand.dots = FALSE)
+  method <- match.arg(method)
+  if (is.matrix(eval.parent(m$data))) 
+    m$data <- as.data.frame(data)
+  m$start <- m$Hess <- m$method <- m$model <- m$... <- NULL
+  m[[1L]] <- quote(stats::model.frame)
+  m <- eval.parent(m)
+  Terms <- attr(m, "terms")
+  x <- model.matrix(Terms, m, contrasts)
+  xint <- match("(Intercept)", colnames(x), nomatch = 0L)
+  n <- nrow(x)
+  pc <- ncol(x)
+  cons <- attr(x, "contrasts")
+  if (xint > 0L) {
+    x <- x[, -xint, drop = FALSE]
+    pc <- pc - 1L
+  }
+  else warning("an intercept is needed and assumed")
+  wt <- model.weights(m)
+  if (!length(wt)) 
+    wt <- rep(1, n)
+  offset <- model.offset(m)
+  if (length(offset) <= 1L) 
+    offset <- rep(0, n)
+  y <- model.response(m)
+  if (!is.factor(y)) 
+    stop("response must be a factor")
+  lev <- levels(y)
+  llev <- length(lev)
+  if (llev <= 2L) 
+    stop("response must have 3 or more levels")
+  y <- unclass(y)
+  q <- llev - 1L
+  if (missing(start)) {
+    q1 <- llev%/%2L
+    y1 <- (y > q1)
+    X <- cbind(Intercept = rep(1, n), x)
+    fit <- switch(method, logistic = glm.fit(X, y1, wt, 
+                                             family = binomial(), offset = offset), probit = glm.fit(X, 
+                                                                                                     y1, wt, family = binomial("probit"), offset = offset), 
+                  loglog = glm.fit(X, y1, wt, family = binomial("probit"), 
+                                   offset = offset), cloglog = glm.fit(X, y1, wt, 
+                                                                       family = binomial("probit"), offset = offset), 
+                  cauchit = glm.fit(X, y1, wt, family = binomial("cauchit"), 
+                                    offset = offset))
+    if (!fit$converged) 
+      stop("attempt to find suitable starting values failed")
+    coefs <- fit$coefficients
+    if (any(is.na(coefs))) {
+      warning("design appears to be rank-deficient, so dropping some coefs")
+      keep <- names(coefs)[!is.na(coefs)]
+      coefs <- coefs[keep]
+      x <- x[, keep[-1L], drop = FALSE]
+      pc <- ncol(x)
+    }
+    logit <- function(p) log(p/(1 - p))
+    spacing <- logit((1L:q)/(q + 1L))
+    if (method != "logistic") 
+      spacing <- spacing/1.7
+    gammas <- -coefs[1L] + spacing - spacing[q1]
+    start <- c(coefs[-1L], gammas)
+    start <- start/start[1L]
+  }
+  else if (length(start) != pc + q) 
+    stop("'start' is not of the correct length")
+  ans <- polr.fit_3(x, y, wt, start, offset, method, hessian = Hess, 
+                  ...)
+  beta <- ans$coefficients
+  zeta <- ans$zeta
+  deviance <- ans$deviance
+  res <- ans$res
+  niter <- c(f.evals = res$counts[1L], g.evals = res$counts[2L])
+  eta <- if (pc) 
+    offset + drop(x %*% beta)
+  else offset + rep(0, n)
+  pfun <- switch(method, logistic = plogis, probit = pnorm, 
+                 loglog = pgumbel, cloglog = pGumbel, cauchit = pcauchy)
+  cumpr <- matrix(pfun(matrix(zeta, n, q, byrow = TRUE) - 
+                         eta), , q)
+  fitted <- t(apply(cumpr, 1L, function(x) diff(c(0, x, 1))))
+  dimnames(fitted) <- list(row.names(m), lev)
+  fit <- list(coefficients = beta, zeta = zeta, deviance = deviance, 
+              fitted.values = fitted, lev = lev, terms = Terms, df.residual = sum(wt) - 
+                pc - q, edf = pc + q, n = sum(wt), nobs = sum(wt), 
+              call = match.call(), method = method, convergence = res$convergence, 
+              niter = niter, lp = eta)
+  if (Hess) {
+    dn <- c(names(beta), names(zeta))
+    H <- res$hessian
+    dimnames(H) <- list(dn, dn)
+    fit$Hessian <- H
+  }
+  if (model) 
+    fit$model <- m
+  fit$na.action <- attr(m, "na.action")
+  fit$contrasts <- cons
+  fit$xlevels <- .getXlevels(Terms, m)
+  class(fit) <- "polr"
+  fit
+}
+
+polr.fit_3 <- function(x, y, wt = rep(1,nrow(x)), start, offset = rep(0,nrow(x)), method = "logistic", ...)
+{
+  fmin <- function(beta) {
+    theta <- beta[pc + ind_q]
+    gamm <- c(-Inf , cumsum(c(theta[1L], exp(theta[-1L]))), Inf)
+    eta <- offset
+    if (pc) eta <- eta + drop(x[,1]) + drop(x[,ind_pc] %*% beta[ind_pc])
+    pr <- pfun(pmin(100*sd(eta), gamm[y + 1] - eta),scale =  sd(eta)) -
+      pfun(pmax(-800*sd(eta), gamm[y] - eta),scale =  sd(eta))
+    if (all(pr >= 0)) -sum(wt * log(pr)) else Inf
+  }
+  
+  gmin <- function(beta)
+  {
+    jacobian <- function(theta) { ## dgamma by dtheta matrix
+      k <- length(theta)
+      etheta <- exp(theta)
+      mat <- matrix(0 , k, k)
+      mat[, 1L] <- rep(1, k)
+      for (i in 2L:k) mat[i:k, i] <- etheta[i]
+      mat
+    }
+    theta <- beta[pc + ind_q]
+    gamm <- c(-Inf, cumsum(c(theta[1L], exp(theta[-1L]))), Inf)
+    eta <- offset
+    if(pc) eta <- eta + drop(x[,1]) + drop(x[,ind_pc] %*% beta[ind_pc])
+    z1 <- pmin(100*sd(eta), gamm[y+1L] - eta)
+    z2 <- pmax(-800*sd(eta), gamm[y] - eta)
+    pr <- pfun(z1,scale =  sd(eta)) - pfun(z2,scale =  sd(eta))
+    p1 <- dfun(z1,scale =  sd(eta)); p2 <- dfun(z2,scale =  sd(eta))
+    g1 <- if(pc) t(x) %*% (wt*(p1 - p2)/pr) else numeric()
+    xx <- .polrY1*p1 - .polrY2*p2
+    g2 <- - t(xx) %*% (wt/pr)
+    g2 <- t(g2) %*% jacobian(theta)
+    if(all(pr >= 0)) c(g1, g2) else rep(NA_real_, pc+q)
+  }
+  
+  pfun <- switch(method, logistic = plogis, probit = pnorm,
+                 loglog = pgumbel, cloglog = pGumbel, cauchit = pcauchy)
+  dfun <- switch(method, logistic = dlogis, probit = dnorm,
+                 loglog = dgumbel, cloglog = dGumbel, cauchit = dcauchy)
+  n <- nrow(x)
+  pc <- ncol(x)
+  ind_pc <- 2:pc
+  lev <- levels(y)
+  if(length(lev) <= 2L) stop("response must have 3 or more levels")
+  y <- unclass(y)
+  q <- length(lev) - 1L
+  ind_q <- seq_len(q)
+  Y <- matrix(0, n, q)
+  .polrY1 <- col(Y) == y; .polrY2 <- col(Y) == (y - 1L)
+  if(missing(start)) start <- rep(0,pc+q)
+  # pc could be 0.
+  s0 <- if(pc) c(start[seq_len(pc+1L)], log(diff(start[-seq_len(pc)])))
+  else c(start[1L], log(diff(start)))
+  res <- optim(s0, fmin, gmin, method="BFGS", ...)
+  beta <- c(1,res$par[ind_pc])
+  theta <- res$par[pc + ind_q]
+  zeta <- cumsum(c(theta[1L], exp(theta[-1L])))
+  deviance <- 2 * res$value
+  names(zeta) <- paste(lev[-length(lev)], lev[-1L], sep="|")
+  if(pc) names(beta) <- colnames(x)
+  list(coefficients = beta, zeta = zeta, deviance = deviance, res = res)
+}
+
+frist_1 <- polr_3(LTR.rating.categories~ IC + OM + TDL + DP + MBA + RDA + REA + CEA + CBA + TA + beta + sigma + size +  S.P.500.return,data = data,Hess = T)
+summary(frist_1)
+
+
+
+y_3 <- predict(frist_1)
+table(data$LTR.rating.categories,y_3,dnn = c("real","predict")) %>%  confusionMatrix()
+```
+
+```{r}
+polr_3 <- function (formula, data, weights, start, ..., subset, na.action, 
+                    contrasts = NULL, Hess = FALSE, model = TRUE, method = c("logistic", 
+                                                                             "probit", "loglog", "cloglog", "cauchit")) 
+{
+  m <- match.call(expand.dots = FALSE)
+  method <- match.arg(method)
+  if (is.matrix(eval.parent(m$data))) 
+    m$data <- as.data.frame(data)
+  m$start <- m$Hess <- m$method <- m$model <- m$... <- NULL
+  m[[1L]] <- quote(stats::model.frame)
+  m <- eval.parent(m)
+  Terms <- attr(m, "terms")
+  x <- model.matrix(Terms, m, contrasts)
+  xint <- match("(Intercept)", colnames(x), nomatch = 0L)
+  n <- nrow(x)
+  pc <- ncol(x)
+  cons <- attr(x, "contrasts")
+  if (xint > 0L) {
+    x <- x[, -xint, drop = FALSE]
+    pc <- pc - 1L
+  }
+  else warning("an intercept is needed and assumed")
+  wt <- model.weights(m)
+  if (!length(wt)) 
+    wt <- rep(1, n)
+  offset <- model.offset(m)
+  if (length(offset) <= 1L) 
+    offset <- rep(0, n)
+  y <- model.response(m)
+  if (!is.factor(y)) 
+    stop("response must be a factor")
+  lev <- levels(y)
+  llev <- length(lev)
+  if (llev <= 2L) 
+    stop("response must have 3 or more levels")
+  y <- unclass(y)
+  q <- llev - 1L
+  if (missing(start)) {
+    q1 <- llev%/%2L
+    y1 <- (y > q1)
+    X <- cbind(Intercept = rep(1, n), x)
+    fit <- switch(method, logistic = glm.fit(X, y1, wt, 
+                                             family = binomial(), offset = offset), probit = glm.fit(X, 
+                                                                                                     y1, wt, family = binomial("probit"), offset = offset), 
+                  loglog = glm.fit(X, y1, wt, family = binomial("probit"), 
+                                   offset = offset), cloglog = glm.fit(X, y1, wt, 
+                                                                       family = binomial("probit"), offset = offset), 
+                  cauchit = glm.fit(X, y1, wt, family = binomial("cauchit"), 
+                                    offset = offset))
+    if (!fit$converged) 
+      stop("attempt to find suitable starting values failed")
+    coefs <- fit$coefficients
+    if (any(is.na(coefs))) {
+      warning("design appears to be rank-deficient, so dropping some coefs")
+      keep <- names(coefs)[!is.na(coefs)]
+      coefs <- coefs[keep]
+      x <- x[, keep[-1L], drop = FALSE]
+      pc <- ncol(x)
+    }
+    logit <- function(p) log(p/(1 - p))
+    spacing <- logit((1L:q)/(q + 1L))
+    if (method != "logistic") 
+      spacing <- spacing/1.7
+    gammas <- -coefs[1L] + spacing - spacing[q1]
+    # gammas <- gammas*sd(start_coef$fitted.values)
+    start <- c(coefs[-(1L:2L)], gammas)
+    start <- start/coefs[2L]
+  }
+  else if (length(start) != pc + q) 
+    stop("'start' is not of the correct length")
+  offset <- offset + x[,names(coefs)[2]]
+  keep <- names(coefs)[!is.na(coefs)]
+  x <- x[, keep[-(1L:2L)], drop = FALSE]
+  ans <- polr.fit_3(x, y, wt, start, offset, method, hessian = Hess, 
+                    ...)
+  beta <- ans$coefficients
+  zeta <- ans$zeta
+  deviance <- ans$deviance
+  res <- ans$res
+  niter <- c(f.evals = res$counts[1L], g.evals = res$counts[2L])
+  eta <- if (pc) 
+    offset + drop(x %*% beta)
+  else offset + rep(0, n)
+  pfun <- switch(method, logistic = plogis, probit = pnorm, 
+                 loglog = pgumbel, cloglog = pGumbel, cauchit = pcauchy)
+  cumpr <- matrix(pfun(matrix(zeta, n, q, byrow = TRUE) - 
+                         eta), , q)
+  fitted <- t(apply(cumpr, 1L, function(x) diff(c(0, x, 1))))
+  dimnames(fitted) <- list(row.names(m), lev)
+  fit <- list(coefficients = beta, zeta = zeta, deviance = deviance, 
+              fitted.values = fitted, lev = lev, terms = Terms, df.residual = sum(wt) - 
+                pc - q, edf = pc + q, n = sum(wt), nobs = sum(wt), 
+              call = match.call(), method = method, convergence = res$convergence, 
+              niter = niter, lp = eta)
+  if (Hess) {
+    dn <- c(names(beta), names(zeta))
+    H <- res$hessian
+    dimnames(H) <- list(dn, dn)
+    fit$Hessian <- H
+  }
+  if (model) 
+    fit$model <- m
+  fit$na.action <- attr(m, "na.action")
+  fit$contrasts <- cons
+  fit$xlevels <- .getXlevels(Terms, m)
+  class(fit) <- "polr"
+  fit
+}
+
+polr.fit_3 <- function(x, y, wt = rep(1,nrow(x)), start, offset = rep(0,nrow(x)), method = "logistic", ...)
+{
+  fmin <- function(beta) {
+    theta <- beta[pc + ind_q]
+    gamm <- c(-Inf , cumsum(c(theta[1L], exp(theta[-1L]))), Inf)
+    eta <- offset
+    if (pc) eta <- eta + drop(x %*% beta[ind_pc])
+    pr <- pfun(pmin(100*sd(eta), gamm[y + 1] - eta),scale =  sd(eta)) -
+      pfun(pmax(-800*sd(eta), gamm[y] - eta),scale =  sd(eta))
+    if (all(pr > 0)) -sum(wt * log(pr)) else Inf
+  }
+  
+  gmin <- function(beta)
+  {
+    jacobian <- function(theta) { ## dgamma by dtheta matrix
+      k <- length(theta)
+      etheta <- exp(theta)
+      mat <- matrix(0 , k, k)
+      mat[, 1L] <- rep(1, k)
+      for (i in 2L:k) mat[i:k, i] <- etheta[i]
+      mat
+    }
+    theta <- beta[pc + ind_q]
+    gamm <- c(-Inf, cumsum(c(theta[1L], exp(theta[-1L]))), Inf)
+    eta <- offset
+    if(pc) eta <- eta + drop(x %*% beta[ind_pc])
+    z1 <- pmin(100*sd(eta), gamm[y+1L] - eta)
+    z2 <- pmax(-800*sd(eta), gamm[y] - eta)
+    pr <- pfun(z1,scale =  sd(eta)) - pfun(z2,scale =  sd(eta))
+    p1 <- dfun(z1,scale =  sd(eta)); p2 <- dfun(z2,scale =  sd(eta))
+    g1 <- if(pc) t(x) %*% (wt*(p1 - p2)/pr) else numeric()
+    xx <- .polrY1*p1 - .polrY2*p2
+    g2 <- - t(xx) %*% (wt/pr)
+    g2 <- t(g2) %*% jacobian(theta)
+    if(all(pr > 0)) c(g1, g2) else rep(NA_real_, pc+q)
+  }
+  
+  pfun <- switch(method, logistic = plogis, probit = pnorm,
+                 loglog = pgumbel, cloglog = pGumbel, cauchit = pcauchy)
+  dfun <- switch(method, logistic = dlogis, probit = dnorm,
+                 loglog = dgumbel, cloglog = dGumbel, cauchit = dcauchy)
+  n <- nrow(x)
+  pc <- ncol(x)
+  ind_pc <- seq_len(pc)
+  lev <- levels(y)
+  if(length(lev) <= 2L) stop("response must have 3 or more levels")
+  y <- unclass(y)
+  q <- length(lev) - 1L
+  ind_q <- seq_len(q)
+  Y <- matrix(0, n, q)
+  .polrY1 <- col(Y) == y; .polrY2 <- col(Y) == (y - 1L)
+  if(missing(start)) start <- rep(0,pc+q)
+  # pc could be 0.
+  s0 <- if(pc) c(start[seq_len(pc+1L)], log(diff(start[-seq_len(pc)])))
+  else c(start[1L], log(diff(start)))
+  res <- optim(s0, fmin, gmin, method="BFGS", ...)
+  beta <- res$par[seq_len(pc)]
+  theta <- res$par[pc + ind_q]
+  zeta <- cumsum(c(theta[1L], exp(theta[-1L])))
+  deviance <- 2 * res$value
+  names(zeta) <- paste(lev[-length(lev)], lev[-1L], sep="|")
+  if(pc) names(beta) <- colnames(x)
+  list(coefficients = beta, zeta = zeta, deviance = deviance, res = res)
+}
+```
+
+
+
+
+
+
+
+```{r}
+frist_1 <- polr_3(LTR.rating.categories~ IC + OM + TDL + DP + MBA + RDA + REA + CEA + CBA + TA + beta + sigma + size +  S.P.500.return,data = data,Hess = T)
+# summary(frist_1)
+frist_1$coefficients
+frist_1$zeta
+```
+
+## confusionMatrix   
+
+```{r}
+y_3 <- predict(frist_1)
+table(data$LTR.rating.categories,y_3,dnn = c("real","predict")) %>%  confusionMatrix()
+```
+
+
+
+
+
+
+
+
+
+

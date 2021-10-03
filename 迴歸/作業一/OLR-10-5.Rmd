@@ -1,0 +1,66 @@
+---
+title: "OLR"
+author: '610811101'
+date: "2020/10/5"
+output: html_document
+---
+
+```{r}
+library(magrittr)
+data <- read.csv("G:/我的雲端硬碟/統計專論/作業一/data.csv")
+
+```
+
+
+資料中有不少的缺失值。
+
+```{r}
+is.na(data) %>% colSums()
+
+```
+
+摘要統計量  
+
+是要 $Y$ 對應的25,50,75分位數，以分位數為標準，介於兩個分位數之間的資料去做mean  
+
+還是 $Y$ 對應的25,50,75分位數，以分位數為標準，符合該分位數的資料去做mean  
+
+還是 單純 以 $Y$ 的大小做排列，將資料切成4等分，做mean   
+
+
+25,50,75分位數  
+
+```{r}
+categories_levels <- c("d","c","cc","ccc","b","bb","bbb","a","aa","aaa")
+data$LTR.rating.categories <- factor(data$LTR.rating.categories,levels = categories_levels)
+
+qua <- quantile(as.numeric(data$LTR.rating.categories),1:3/4,na.rm = T)
+categories_levels[qua] %>% `names<-`(names(qua))
+```
+
+25分位數以下(包括25分位數)
+
+```{r}
+summary(data[data$LTR.rating.categories %in% categories_levels[1:qua[1]],1:15],na.rm = T)
+```
+
+25分位數到50分位數(包括25分位數和50分位數)
+
+```{r}
+summary(data[data$LTR.rating.categories %in% categories_levels[qua[1]:qua[2]],1:15],na.rm = T)
+```
+
+
+50分位數到75分位數(包括50分位數和75分位數)
+
+```{r}
+summary(data[data$LTR.rating.categories %in% categories_levels[qua[2]:qua[3]],1:15],na.rm = T)
+```
+
+
+
+75分位數以上(包括75分位數)
+
+```{r}
+summary(data[data$LTR.rating.categories %in% categories_levels[qua[3]:length(categories_levels)],1:15],na.rm = T)
+```

@@ -1,0 +1,11 @@
+這個檔案是一個壓縮檔，其中data.csv是老師要求的所有變數加上所有總經變數。
+
+data_1-10.csv 是老師要求的所有變數加上一個總經變數，根據檔案名稱最後的數字對應"Econ9815欄位說明.txt"中除了Year以外的順序。
+
+資料檔.R是處理出data.csv和data_1-10.csv，所使用的程式，對你們來說沒有用。
+
+homework1.Rmd是R的程式碼。
+
+homework1.html是由homework1.Rmd所生成出來的html文件，請用瀏覽器開啟，程式的結果都在那邊。
+
+homework1.pdf是homework1.html備份，避免因為編碼問題或是其他因素，導致homework1.html無法使用，還可以有東西參考。

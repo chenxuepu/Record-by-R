@@ -1,0 +1,112 @@
+---
+title: "homework 2"
+author: '610811101 陳學蒲'
+date: "2020/10/26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(magrittr)
+library(caret)
+library(numDeriv)
+```
+
+
+
+```{r}
+setwd("G:/我的雲端硬碟/統計專論/作業二")
+data_in <- read.csv("data_in.csv")
+data_out <- read.csv("data_out.csv")
+
+```
+
+
+```{r}
+LL<-function(para){
+  X <- as.matrix(x)
+  pmf_0<- pnorm(-(X %*% para[1:13]) /sqrt(para[14]))
+  pmf_1<- 1 -pnorm((1 - X %*% para[1:13]) /sqrt(para[14]))
+  pdf_y <- dnorm(y,mean = X %*% para[1:13],sd = para[14])
+  
+  f<- pmf_0^(y==0) * pmf_1^(y==1) * pdf_y^(y!=0&y!=1)
+  ll<-sum(log(f))
+  return(-ll)
+} ##log-likelihood function
+
+```
+
+```{r}
+###Program for dataIN and estimating.
+
+y <- data_in[,3]
+x <- cbind(rep(1,nrow(data_in)),data_in[,4:15])
+initial <- matrix(c(mean(y),rep(0,ncol(x)-1),1))
+## initial vector
+mle <- nlminb(start = initial ,LL)
+## MLE function
+HESSIAN <- hessian(LL, initial)
+## hessian matrix
+inv_HESSIAN<- solve(HESSIAN)
+sd <- sqrt(abs(inv_HESSIAN[col(inv_HESSIAN)==row(inv_HESSIAN)]))
+## get standard error vector from hessian matrix
+z_value <- mle$par / sd
+## just z value vector
+pvalue <- function(z){
+  zz <- rep(0,length(z))
+  for(i in 1:length(z)){
+    if (abs(z[i]) > 1.96 ){
+      zz[i] <- "<0.05"
+    }
+    else {
+      zz[i] <- ">0.05"
+    }
+  }
+  return(zz)
+}
+```
+
+
+```{r}
+est_coefficients <- data.frame(
+  "Estimate" = round(mle$par,digits = 4),
+  "Std Error" = round(sd,digits = 4),
+  "z value" = round(z_value,digits = 4),
+  "Pr(|z|)" = pvalue(z_value),
+  row.names = c("intecept","Debt cushion","Industry Distress",
+                "Rank1","Rank2","Rank3","Collateral","type 1",
+                "type 2","type 3","type 4","type 5",
+                "Utility industry","sigma"))
+## rearrange estimated coefficients to a frame.
+est_coefficients
+```
+
+# data_in  
+
+```{r}
+in_fit <- drop((as.matrix(x) %*% mle$par[1:13]))
+# in_fit <- drop((as.matrix(x) %*% mle$par[1:13])/mle$par[14])
+in_fit <- ifelse(in_fit>=1,1,ifelse(in_fit<=0,0,in_fit))
+table(y==1,in_fit==1,dnn = c("real 1","prediction 1"))
+table(y==0,in_fit==0,dnn = c("real 0","prediction 0"))
+mean((y-in_fit)^2)
+```
+
+# data_out  
+
+```{r}
+x_out <- cbind(rep(1,nrow(data_out)),data_out[,4:15])
+y_out <- data_out[,3]
+
+out_fit <- drop((as.matrix(x_out) %*% mle$par[1:13]))
+# out_fit <- drop((as.matrix(x_out) %*% mle$par[1:13])/mle$par[14])
+out_fit <- ifelse(out_fit>=1,1,ifelse(out_fit<=0,0,out_fit))
+
+table(y_out==1,out_fit==1,dnn = c("real 1","prediction 1"))
+table(y_out==0,out_fit==0,dnn = c("real 0","prediction 0"))
+mean((y_out-out_fit)^2)
+```
+

@@ -1,0 +1,390 @@
+---
+title: "CPM"
+author: '610811101'
+date: "2020/12/1"
+always_allow_html: true
+output:
+  ioslides_presentation: 
+    widescreen: true
+    df_print: tibble 
+  slidy_presentation: default
+
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(MASS)
+library(caret)
+library(magrittr)
+library(highcharter)
+library(tidyr)
+library(tibble)
+```
+
+  
+
+```{r}
+setwd("G:/我的雲端硬碟/統計專論/CPM")
+data <- read.csv("data_1.csv")
+categories_levels <- c("d_cc","ccc","b","bb","bbb","a","aa","aaa")
+
+data$LTR.rating.categories[data$LTR.rating.categories=="d"] <- "d_cc"
+data$LTR.rating.categories[data$LTR.rating.categories=="c"] <- "d_cc"
+data$LTR.rating.categories[data$LTR.rating.categories=="cc"] <- "d_cc"
+data$LTR.rating.categories <- factor(data$LTR.rating.categories,levels = categories_levels)
+
+# print("LTR.rating.categories的分布狀況")
+# summary(data$LTR.rating.categories)
+data <- data[!(is.na(data) %>% rowSums()),] 
+# is.na(data) %>% colSums()
+# data$constant <- 1
+# print("LTR rating categories的分布狀況")
+# summary(data$LTR.rating.categories)
+
+# print("LTR rating categories的25,50,75分位數")
+qua <- quantile(as.numeric(data$LTR.rating.categories),1:3/4,na.rm = T)
+# categories_levels[qua] %>% `names<-`(names(qua))
+```
+
+
+
+
+## logistic CPM   
+
+
+```{r}
+olr_cpm <- function (formula, data, weights, start, ..., subset, na.action, 
+          contrasts = NULL, Hess = FALSE, model = TRUE, method = c("logistic", 
+                                                                   "probit", "loglog", "cloglog", "cauchit")) 
+{
+  m <- match.call(expand.dots = FALSE)
+  method <- match.arg(method)
+  if (is.matrix(eval.parent(m$data))) 
+    m$data <- as.data.frame(data)
+  m$start <- m$Hess <- m$method <- m$model <- m$... <- NULL
+  m[[1L]] <- quote(stats::model.frame)
+  m <- eval.parent(m)
+  Terms <- attr(m, "terms")
+  x <- model.matrix(Terms, m, contrasts)
+  xint <- match("(Intercept)", colnames(x), nomatch = 0L)
+  n <- nrow(x)
+  pc <- ncol(x)
+  cons <- attr(x, "contrasts")
+  if (xint > 0L) {
+    x <- x[, -xint, drop = FALSE]
+    pc <- pc - 1L
+  }
+  else warning("an intercept is needed and assumed")
+  wt <- model.weights(m)
+  if (!length(wt)) 
+    wt <- rep(1, n)
+  offset <- model.offset(m)
+  if (length(offset) <= 1L) 
+    offset <- rep(0, n)
+  y <- model.response(m)
+  if (!is.factor(y)) 
+    stop("response must be a factor")
+  lev <- levels(y)
+  llev <- length(lev)
+  if (llev <= 2L) 
+    stop("response must have 3 or more levels")
+  y <- unclass(y)
+  q <- llev - 1L
+  #####
+  X <- cbind(Intercept = rep(1, n), x)
+  coefs <- matrix(ncol = ncol(X))  %>% as.data.frame()
+  for(i in 1:n){
+    w <- if(y[i]==max(y)) as.numeric(y >= y[i]) else as.numeric(y >  y[i])
+    fit <- switch(method, logistic = glm.fit(X[-i,], w[-i], wt[-i], 
+                                             family = binomial(), offset = offset[-i]), probit = glm.fit(X[-i,], 
+                                                                                                     w[-i], wt[-i], family = binomial("probit"), offset = offset[-i]), 
+                  loglog = glm.fit(X[-i,], w[-i], wt[-i], family = binomial("probit"), 
+                                   offset = offset[-i]), cloglog = glm.fit(X[-i,], w[-i], wt[-i], 
+                                                                       family = binomial("probit"), offset = offset[-i]), 
+                  cauchit = glm.fit(X[-i,], w[-i], wt[-i], family = binomial("cauchit"), 
+                                    offset = offset[-i]))
+    coefs[i,] <- fit$coefficients
+  }
+  logit <- function(p) log(p/(1 - p))
+  spacing <- logit((1L:q)/(q + 1L))
+  # if (method != "logistic") 
+  #   spacing <- spacing/1.7
+  coefs_mean <- colMeans(coefs,na.rm = T)
+  gammas <- -coefs_mean[1L] + spacing - spacing[llev%/%2L]
+  start <- c(coefs_mean[-1L], gammas)
+  #####
+  ans <- olr_cpm.fit(x, y, wt, start, offset, method, hessian = Hess, ...)
+  beta <- ans$coefficients
+  zeta <- ans$zeta
+  deviance <- ans$deviance
+  res <- ans$res
+  niter <- c(f.evals = res$counts[1L], g.evals = res$counts[2L])
+  eta <- if (pc) 
+    offset + drop(x %*% beta)
+  else offset + rep(0, n)
+  pfun <- switch(method, logistic = plogis, probit = pnorm, 
+                 loglog = pgumbel, cloglog = pGumbel, cauchit = pcauchy)
+  cumpr <- matrix(pfun(matrix(zeta, n, q, byrow = TRUE) - 
+                         eta), , q)
+  fitted <- t(apply(cumpr, 1L, function(x) diff(c(0, x, 1))))
+  dimnames(fitted) <- list(row.names(m), lev)
+  fit <- list(coefficients = beta, zeta = zeta, deviance = deviance, 
+              fitted.values = fitted, lev = lev, terms = Terms, df.residual = sum(wt) - 
+                pc - q, edf = pc + q, n = sum(wt), nobs = sum(wt), 
+              call = match.call(), method = method, convergence = res$convergence, 
+              niter = niter, lp = eta)
+  if (Hess) {
+    dn <- c(names(beta), names(zeta))
+    H <- res$hessian
+    dimnames(H) <- list(dn, dn)
+    fit$Hessian <- H
+  }
+  if (model) 
+    fit$model <- m
+  fit$na.action <- attr(m, "na.action")
+  fit$contrasts <- cons
+  fit$xlevels <- .getXlevels(Terms, m)
+  class(fit) <- "polr"
+  fit
+}
+```
+
+```{r}
+olr_cpm.fit <- function(x, y, wt = rep(1,nrow(x)), start, offset = rep(0,nrow(x)), method = "logistic", ...)
+{
+  fmin <- function(theta) {
+    # theta <- beta[pc + ind_q]
+    gamm <- c(-Inf , cumsum(c(theta[1L], exp(theta[-1L]))), Inf)
+    eta <- offset
+    if (pc) eta <- eta + drop(x %*% beta)
+    pr <- pfun(pmin(100, gamm[y + 1] - eta)) -
+      pfun(pmax(-100, gamm[y] - eta))
+    if (all(pr > 0)) -sum(wt * log(pr)) else Inf
+  }
+  
+  pfun <- switch(method, logistic = plogis, probit = pnorm,
+                 loglog = pgumbel, cloglog = pGumbel, cauchit = pcauchy)
+  n <- nrow(x)
+  pc <- ncol(x)
+  ind_pc <- seq_len(pc)
+  lev <- levels(y)
+  if(length(lev) <= 2L) stop("response must have 3 or more levels")
+  y <- unclass(y)
+  q <- length(lev) - 1L
+  ind_q <- seq_len(q)
+  Y <- matrix(0, n, q)
+  .polrY1 <- col(Y) == y; .polrY2 <- col(Y) == (y - 1L)
+  # if(missing(start)) start <- rep(0,pc+q)
+  # pc could be 0.
+  s0 <- if(pc) c(start[pc+1L], log(diff(start[-seq_len(pc)])))
+  else c(start[1L], log(diff(start)))
+  beta <- start[seq_len(pc)]
+  res <- optim(s0, fmin, method="BFGS", ...)
+  # beta <- beta[seq_len(pc)]
+  theta <- res$par
+  zeta <- cumsum(c(theta[1L], exp(theta[-1L])))
+  deviance <- 2 * res$value
+  names(zeta) <- paste(lev[-length(lev)], lev[-1L], sep="|")
+  if(pc) names(beta) <- colnames(x)
+  list(coefficients = beta, zeta = zeta, deviance = deviance, res = res)
+}
+```
+
+
+```{r warning=FALSE}
+cpm <- olr_cpm(LTR.rating.categories~ IC + OM + TDL + DP + MBA + RDA + REA + CEA + CBA + TA + beta + sigma + size +  S.P.500.return,data = data, method = "logistic")
+
+cpm$coefficients
+cpm$zeta
+
+```
+
+
+## confusionMatrix  
+
+
+```{R}
+y <- predict(cpm)
+table(data$LTR.rating.categories,y,dnn = c("real","predict")) %>%  confusionMatrix()
+```
+
+
+
+## probit CPM
+
+
+
+```{r warning=FALSE}
+cpm <- olr_cpm(LTR.rating.categories~ IC + OM + TDL + DP + MBA + RDA + REA + CEA + CBA + TA + beta + sigma + size +  S.P.500.return,data = data, method = "probit")
+
+cpm$coefficients
+cpm$zeta
+
+```
+
+
+## confusionMatrix  
+
+
+```{R}
+y <- predict(cpm)
+table(data$LTR.rating.categories,y,dnn = c("real","predict")) %>%  confusionMatrix()
+```
+
+
+
+
+
+# CPM_2
+
+
+```{r}
+olr_cpm_2 <- function (formula, data, weights, start, ..., subset, na.action, 
+          contrasts = NULL, Hess = FALSE, model = TRUE, method = c("logistic", 
+                                                                   "probit", "loglog", "cloglog", "cauchit")) 
+{
+  m <- match.call(expand.dots = FALSE)
+  method <- match.arg(method)
+  if (is.matrix(eval.parent(m$data))) 
+    m$data <- as.data.frame(data)
+  m$start <- m$Hess <- m$method <- m$model <- m$... <- NULL
+  m[[1L]] <- quote(stats::model.frame)
+  m <- eval.parent(m)
+  Terms <- attr(m, "terms")
+  x <- model.matrix(Terms, m, contrasts)
+  xint <- match("(Intercept)", colnames(x), nomatch = 0L)
+  n <- nrow(x)
+  pc <- ncol(x)
+  cons <- attr(x, "contrasts")
+  if (xint > 0L) {
+    x <- x[, -xint, drop = FALSE]
+    pc <- pc - 1L
+  }
+  else warning("an intercept is needed and assumed")
+  wt <- model.weights(m)
+  if (!length(wt)) 
+    wt <- rep(1, n)
+  offset <- model.offset(m)
+  if (length(offset) <= 1L) 
+    offset <- rep(0, n)
+  y <- model.response(m)
+  if (!is.factor(y)) 
+    stop("response must be a factor")
+  lev <- levels(y)
+  llev <- length(lev)
+  if (llev <= 2L) 
+    stop("response must have 3 or more levels")
+  y <- unclass(y)
+  q <- llev - 1L
+  #####
+  X <- cbind(Intercept = rep(1, n), x)
+  coefs <- matrix(ncol = ncol(X))  %>% as.data.frame()
+  for(i in 1:n){
+    w <- if(y[i]==max(y)) as.numeric(y >= y[i]) else as.numeric(y >  y[i])
+    fit <- switch(method, logistic = glm.fit(X[-i,], w[-i], wt[-i], 
+                                             family = binomial(), offset = offset[-i]), probit = glm.fit(X[-i,], 
+                                                                                                     w[-i], wt[-i], family = binomial("probit"), offset = offset[-i]), 
+                  loglog = glm.fit(X[-i,], w[-i], wt[-i], family = binomial("probit"), 
+                                   offset = offset[-i]), cloglog = glm.fit(X[-i,], w[-i], wt[-i], 
+                                                                       family = binomial("probit"), offset = offset[-i]), 
+                  cauchit = glm.fit(X[-i,], w[-i], wt[-i], family = binomial("cauchit"), 
+                                    offset = offset[-i]))
+    coefs[i,] <- fit$coefficients
+  }
+  coefs_mean <- colMeans(coefs,na.rm = T)
+  beta <- coefs_mean[-1L]
+  names(beta) <- colnames(x)
+  logit <- function(p) log(p/(1 - p))
+  spacing <- logit((1L:q)/(q + 1L))
+  gammas <- -coefs_mean[1L] + spacing - spacing[llev%/%2L]
+  #####
+  eta <- if (pc) 
+    offset + drop(x %*% beta)
+  else offset + rep(0, n)
+  pfun <- switch(method, logistic = plogis, probit = pnorm, 
+                 loglog = pgumbel, cloglog = pGumbel, cauchit = pcauchy)
+  mle <-  function(zeta){
+    # if(j == 1){
+    #   p <- pfun(zeta-eta)
+    # }else{
+    #   p <- pfun(gammas[j-1]+exp(zeta)-eta)
+    # }
+    p <- pfun(zeta-eta)
+    -sum(w*p+(1-w)*(1-p))
+  }
+  for(j in 1:q){
+    w <- (y <= j)
+    res <- optim(0, mle, method="BFGS")
+    gammas[j] <- res$par
+    # if(j==1){
+    #   gammas[j] <- res$par
+    # }else{
+    #   # gammas[j] <- gammas[j-1]+exp(res$par)
+    #   gammas[j] <- res$par
+    # }
+  }
+  zeta <- gammas
+  
+  cumpr <- matrix(pfun(matrix(zeta, n, q, byrow = TRUE) - 
+                         eta),n , q)
+  fitted <- t(apply(cumpr, 1L, function(x) diff(c(0, x, 1))))
+  dimnames(fitted) <- list(row.names(m), lev)
+  fit <- list(coefficients = beta, zeta = zeta, 
+              fitted.values = fitted, lev = lev, terms = Terms, df.residual = sum(wt) - 
+                pc - q, edf = pc + q, n = sum(wt), nobs = sum(wt), 
+              call = match.call(), method = method,
+              lp = eta)
+  if (model) 
+    fit$model <- m
+  fit$na.action <- attr(m, "na.action")
+  fit$contrasts <- cons
+  fit$xlevels <- .getXlevels(Terms, m)
+  class(fit) <- "polr"
+  fit
+}
+```
+
+
+## logistic CPM
+
+```{r warning=FALSE}
+cpm <- olr_cpm_2(LTR.rating.categories~ IC + OM + TDL + DP + MBA + RDA + REA + CEA + CBA + TA + beta + sigma + size +  S.P.500.return,data = data, method = "logistic")
+
+cpm$coefficients
+cpm$zeta
+
+```
+
+
+## confusionMatrix  
+
+
+```{R}
+y <- predict(cpm)
+table(data$LTR.rating.categories,y,dnn = c("real","predict")) %>%  confusionMatrix()
+```
+
+## probit CPM
+
+
+
+```{r warning=FALSE}
+cpm <- olr_cpm_2(LTR.rating.categories~ IC + OM + TDL + DP + MBA + RDA + REA + CEA + CBA + TA + beta + sigma + size +  S.P.500.return,data = data, method = "probit")
+
+cpm$coefficients
+cpm$zeta
+
+```
+
+
+## confusionMatrix  
+
+
+```{R}
+y <- predict(cpm)
+table(data$LTR.rating.categories,y,dnn = c("real","predict")) %>%  confusionMatrix()
+```

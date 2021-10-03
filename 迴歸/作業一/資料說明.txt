@@ -1,0 +1,62 @@
+var 1998~2015  ltr 1999~2016
+
+column names of finaldata9815.txt are:
+ 1. gvkey
+ 2. year (variable year)
+ 3. LTR rating number (LTR year = variable year + 1)
+ 4. sic
+ 5. IC1
+ 6. IC2
+ 7. IC3
+ 8. IC4
+ 9. OM
+10. LDL
+11. TDL
+12. DP
+13. MBA
+14. RDA
+15. REA
+16. CEA
+17. CBA
+18. TA
+19. beta
+20. sigma
+21. size
+
+
+
+column names of indata and outdata are:
+ 1. gvkey
+ 2. year (variable year)
+ 3. LTR rating categories (LTR year = variable year + 1) 
+ 4. IC (IC1+IC2+IC3+IC4)
+ 5. OM
+ 6. TDL (drop LDL)
+ 7. DP
+ 8. MBA
+ 9. RDA
+10. REA
+11. CEA
+12. CBA
+13. TA
+14. beta
+15. sigma
+16. size
+
+miss value=-9999
+I winsorize all variables at 1% and 99% except for IC1,IC2,IC3, and IC4. 
+
+
+
+
+LTR rating categories: Split the LTR rating number to the LTR rating categories. 
+aaa=2; 
+ aa=4|5|6; 
+  a=7|8|9; 
+bbb=10|11|12; 
+ bb=13|14|15; 
+  b=16|17|18; 
+ccc=19|20|21; 
+ cc=23; 
+  c=24|26; 
+  d=27|29;
