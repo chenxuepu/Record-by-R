@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css" integrity="sha384-9aIt2nRpC12Uk9gS9baDl411NQApFmC26EwAOH8WgZl5MYYxFfc+NcPb1dKGj7Sk" crossorigin="anonymous">
+    <!-- web icon-->
+    <link rel="icon" href="static/img/favicon.ico">
+    <title>洄瀾Q報</title>
+</head>
+
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- 導航列 -->
+            <div class="col-lg-3 bg-light sticky-top">
+                <nav class="navbar navbar-expand-lg navbar-light bg-light" style="position: fixed; z-index: 999;">
+                    <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarContent" aria-controls="navbarContent" aria-expanded="false" aria-label="Toggle navigation">
+                        <span class="navbar-toggler-icon"></span>
+                    </button>
+                    <div class="collapse navbar-collapse text-center" id="navbarContent">
+                        <ul class="navbar-nav mr-auto flex-column">
+                            <br>
+                            <li class="nav-item">
+                                <img src="static/img/logo.jpg" class="img-fluid">
+                            </li>
+                            <br>
+                            <li class="nav-item">
+                                <a href="index.html"><button type="button" class="btn btn-outline-dark">關於我們</button></a>
+                            </li>
+                            <br>
+                            <li class="nav-item">
+                                <button type="button" class="btn btn-outline-dark">報表資訊</button>
+                            </li>
+                        </ul>
+                    </div>
+                </nav>
+            </div>
+            <div class="col-lg-9 bg-light">
+                <div class="container">
+                    <ul class="nav justify-content-center bg-light row sticky-top" style=" ;z-index: 998">
+                        <li class="nav-item">
+                            <a class="nav-link" href="#monthdata">每月總兌換點數＆次數變化</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#daydata">每日總兌換點數</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#nomaldaydata">平假日平均兌換點數</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#monthstoredata">每月店家兌換前10名</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#monthuserdata">每月會員兌換前10名</a>
+                        </li>
+                    </ul>
+                    <div class="row">
+                        <div class="col-12" id="monthdata">
+                        <div class="card" style="margin-top: 60px">
+                            <div class="card-header alert-danger">
+                                一、每月總兌換點數＆次數
+                            </div>
+                            <div class="card-body">
+                                <div class="embed-responsive embed-responsive-16by9">
+                                    <iframe class="embed-responsive-item" src="http://127.0.0.1:8000/Plot1" ></iframe>
+                                </div>
+								<div class="embed-responsive embed-responsive-16by9">
+									<iframe class="embed-responsive-item" src="http://127.0.0.1:8000/Plot2" ></iframe>
+								</div>	
+                            </div>
+                        </div>
+                        <div id="daydata"></div>
+                        <div class="card" style="margin-top: 60px" id="daydata">
+                            <div class="card-header alert-danger">
+                                二、每日總兌換點數＆次數
+                            </div>
+                            <div class="card-body">
+                                <div class="embed-responsive embed-responsive-16by9">
+									<iframe class="embed-responsive-item" src="http://127.0.0.1:8000/Plot3" ></iframe>
+                                </div>
+								<div class="embed-responsive embed-responsive-16by9">
+									<iframe class="embed-responsive-item" src="http://127.0.0.1:8000/Plot4" ></iframe>
+								</div>
+                            </div>
+                        </div>
+                        <div id="nomaldaydata"></div>
+                        <div class="card" style="margin-top: 60px">
+                            <div class="card-header alert-danger">
+                                三、平假日平均兌換點數
+                            </div>
+                            <div class="card-body">
+                                <div class="embed-responsive embed-responsive-16by9">
+                                    <iframe class="embed-responsive-item" src="http://127.0.0.1:8000/Plot5" ></iframe>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="monthstoredata"></div>
+                        <div class="card" style="margin-top: 60px">
+                            <div class="card-header alert-danger">
+                                四、每月店家兌換前10名
+                            </div>
+                            <div class="card-body">
+                                <div class="embed-responsive embed-responsive-16by9">
+                                    <iframe  src="http://127.0.0.1:8000/Plot8" ></iframe>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="monthuserdata"></div>
+                        <div class="card" style="margin-top: 60px">
+                            <div class="card-header alert-danger">
+                                五、每月會員兌換前10名
+                            </div>
+                            <div class="card-body">
+                                <div class="embed-responsive embed-responsive-16by9">
+                                    <iframe  src="http://127.0.0.1:8000/Plot9" ></iframe>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- Optional JavaScript -->
+        <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+        <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js" integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj" crossorigin="anonymous"></script>
+        <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js" integrity="sha384-Q6E9RHvbIyZFJoft+2mJbHaEWldlvI9IOYy5n3zV9zzTtmI3UksdQRVvoxMfooAo" crossorigin="anonymous"></script>
+        <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/js/bootstrap.min.js" integrity="sha384-OgVRvuATP1z7JjHLkuOU7Xw704+h835Lr+6QL9UvYjZE3Ipu6Tp75j7Bh/kR0JKI" crossorigin="anonymous"></script>
+</body>
+
+</html>
