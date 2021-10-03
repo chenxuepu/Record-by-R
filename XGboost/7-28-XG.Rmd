@@ -1,0 +1,3589 @@
+---
+title: "XGboost"
+author: '610811101'
+date: "2020/7/28"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_depth: 6
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+
+
+
+```{r include=FALSE}
+library(mda)
+library(OneR)
+library(magrittr)
+library(iml)
+library(caret)
+library(xgboost)
+library(MASS)
+library("highcharter")
+library(ROCR)
+library(ROCit)
+library(plotROC)
+library(boot)
+library(randomForest)
+library(mvtnorm)
+library(olsrr)
+# load("G:/我的雲端硬碟/BGG/data_test.RData")
+# load("G:/我的雲端硬碟/BGG/data_7wonder_2.RData")
+```
+
+
+
+# 資料生成跑XGboost Feature Importances    
+
+ols_step_forward_p 部分看的P-value，好像就是原本model的P-value。     
+
+max_depth 預設值為6 。   
+
+用AIC或P-value來選，都基本是一樣的，但有的時候，用AIC會少選。   
+
+資料三和資料四，用AIC，都比較會少選。   
+
+## 資料一 (部分相關)      
+
+ 
+ 
+
+$x_{1 \sim 5}\sim MN(\mu_1 , \Sigma_1 )$  
+$\mu_1=(0,0,0,0,0,0,0,0,0,0)$  
+$\Sigma_1 =  A^TDA$   
+
+$$D = \begin{pmatrix}
+1 & 0 & 0 & 0 & 0 \\ 
+0 &  1& 0 & 0 & 0 \\ 
+0 &  0& 1 & 0 & 0 \\ 
+0 &  0& 0 & 1 & 0 \\ 
+0 &  0& 0 & 0 & 1 
+\end{pmatrix}$$   
+
+$$A = \begin{pmatrix}
+0 & 2 & 2 & -2 & -1 \\ 
+0 &  1& 0 & -2 & -2 \\ 
+-1 &  -2& 0 & 2 & 0 \\ 
+-1 &  -1& -2 & 0 & 1 \\ 
+0 &  0& 1 & -1 & -2 
+\end{pmatrix}$$  
+
+$x_{6 \sim 10}\sim MN(\mu_2 , \Sigma_2 )$  
+$\mu_2=(0,0,0,0,0,0,0,0,0,0)$ 
+
+$$\Sigma_2 = \begin{pmatrix}
+1 & 0 & 0 & 0 & 0 \\ 
+0 &  1& 0 & 0 & 0 \\ 
+0 &  0& 1 & 0 & 0 \\ 
+0 &  0& 0 & 1 & 0 \\ 
+0 &  0& 0 & 0 & 1 
+\end{pmatrix}$$  
+  
+
+
+$x_{11} \sim N(0,1)$        
+
+$y=10x_1+5x_2-3x_3+4x_4+8x_5+10x_6+5x_7-3x_8+4x_9+8x_{10}+\epsilon$  
+
+$\epsilon \sim N(0,4)$  
+
+### 第一次     
+
+```{r}
+#資料生成
+set.seed(123)
+a <- matrix(sample(-2:2,25,replace = T),5,5)
+sigmas <- t(a)%*%diag(1,5)%*%a
+set.seed(1253)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0),sigma = sigmas)
+set.seed(173)
+x2 <- rmvnorm(n = 100,mean = c(0,0,0,0,0),sigma = diag(1,5))
+set.seed(59)
+x_11 <- rnorm(n = 100)
+set.seed(5)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]+5*x[,2]-3*x[,3]+4*x[,4]+8*x[,5]+10*x2[,1]+5*x2[,2]-3*x2[,3]+4*x2[,4]+8*x2[,5]+sd
+sim <- data.frame(y,x,x2,x_11)
+
+
+set.seed(192753)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0),sigma = sigmas)
+set.seed(1783)
+x2 <- rmvnorm(n = 100,mean = c(0,0,0,0,0),sigma = diag(1,5))
+set.seed(599)
+x_11 <- rnorm(n = 100)
+set.seed(54)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]+5*x[,2]-3*x[,3]+4*x[,4]+8*x[,5]+10*x2[,1]+5*x2[,2]-3*x2[,3]+4*x2[,4]+8*x2[,5]+sd
+sim_2 <- data.frame(y,x,x2,x_11)
+
+
+set.seed(1962753)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0),sigma = sigmas)
+set.seed(15783)
+x2 <- rmvnorm(n = 100,mean = c(0,0,0,0,0),sigma = diag(1,5))
+set.seed(4599)
+x_11 <- rnorm(n = 100)
+set.seed(534)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]+5*x[,2]-3*x[,3]+4*x[,4]+8*x[,5]+10*x2[,1]+5*x2[,2]-3*x2[,3]+4*x2[,4]+8*x2[,5]+sd
+sim_3 <- data.frame(y,x,x2,x_11)
+
+# sim_3 test data 
+
+names(sim) <- c("y",paste0("x",1:11))
+names(sim_2) <- c("y",paste0("x",1:11))
+names(sim_3) <- c("y",paste0("x",1:11))
+
+
+
+```
+
+#### use p-value to Variable Selection
+
+```{r}
+(old_data_lm <- lm(y~.,data = sim)) %>% summary()
+old_data_lm %>% ols_step_forward_p()
+(old_data_lm %<>% ols_step_forward_aic())
+```
+
+
+
+
+
+```{r}
+md <- formula(y~x1+x3+x5+x6+x7+x8+x9+x10+x11)
+VS <- c(1,3,5,6,7,8,9,10,11)+1
+```
+
+
+
+##### old data 
+
+
+###### regression
+
+```{r}
+old_data_lm$model %>% summary()
+print("train MSE")
+label  <- old_data_lm$model %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm$model %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.3,
+# max_depth = 6, 
+nround= 25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+#### use Gain to Variable Selection
+
+
+```{r}
+xgb_test <- xgboost(data = data.matrix(sim[,-1]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+
+xgb.importance(model = xgb_test) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+```{r}
+md <- formula(y~x1+x2+x3+x4+x5+x6+x7+x8+x10)
+VS <- c(1,2,3,4,5,6,7,8,10)+1
+```
+
+##### old data 
+
+
+
+
+###### regression
+
+```{r}
+
+old_data_lm <- lm(md,data = sim)
+
+
+
+old_data_lm %>% summary()
+
+print("train MSE")
+label  <- old_data_lm %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+
+```
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+
+
+
+### 第二次      
+
+```{r}
+#資料生成
+set.seed(123)
+a <- matrix(sample(-2:2,25,replace = T),5,5)
+sigmas <- t(a)%*%diag(1,5)%*%a
+set.seed(155253)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0),sigma = sigmas)
+set.seed(6173)
+x2 <- rmvnorm(n = 100,mean = c(0,0,0,0,0),sigma = diag(1,5))
+set.seed(579)
+x_11 <- rnorm(n = 100)
+set.seed(85)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]+5*x[,2]-3*x[,3]+4*x[,4]+8*x[,5]+10*x2[,1]+5*x2[,2]-3*x2[,3]+4*x2[,4]+8*x2[,5]+sd
+sim <- data.frame(y,x,x2,x_11)
+
+
+set.seed(19923)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0),sigma = sigmas)
+set.seed(175483)
+x2 <- rmvnorm(n = 100,mean = c(0,0,0,0,0),sigma = diag(1,5))
+set.seed(5969)
+x_11 <- rnorm(n = 100)
+set.seed(547)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]+5*x[,2]-3*x[,3]+4*x[,4]+8*x[,5]+10*x2[,1]+5*x2[,2]-3*x2[,3]+4*x2[,4]+8*x2[,5]+sd
+sim_2 <- data.frame(y,x,x2,x_11)
+
+
+set.seed(1962752)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0),sigma = sigmas)
+set.seed(15743)
+x2 <- rmvnorm(n = 100,mean = c(0,0,0,0,0),sigma = diag(1,5))
+set.seed(499)
+x_11 <- rnorm(n = 100)
+set.seed(5234)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]+5*x[,2]-3*x[,3]+4*x[,4]+8*x[,5]+10*x2[,1]+5*x2[,2]-3*x2[,3]+4*x2[,4]+8*x2[,5]+sd
+sim_3 <- data.frame(y,x,x2,x_11)
+
+
+
+names(sim) <- c("y",paste0("x",1:11))
+names(sim_2) <- c("y",paste0("x",1:11))
+names(sim_3) <- c("y",paste0("x",1:11))
+
+
+
+```
+
+
+#### use p-value to Variable Selection
+
+```{r}
+(old_data_lm <- lm(y~.,data = sim)) %>% summary()
+old_data_lm %>% ols_step_forward_p()
+(old_data_lm %<>% ols_step_forward_aic())
+```
+
+
+
+
+
+```{r}
+md <- formula(y~.)
+VS <- 1:11+1
+```
+
+
+
+##### old data 
+
+
+###### regression
+
+```{r}
+old_data_lm$model %>% summary()
+print("train MSE")
+label  <- old_data_lm$model %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm$model %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.3,
+# max_depth = 6, 
+nround= 25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+#### use Gain to Variable Selection
+
+
+```{r}
+xgb_test <- xgboost(data = data.matrix(sim[,-1]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+
+xgb.importance(model = xgb_test) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+```{r}
+md <- formula(y~.)
+VS <- 1:11+1
+```
+
+##### old data 
+
+
+
+
+###### regression
+
+```{r}
+
+old_data_lm <- lm(md,data = sim)
+
+
+
+old_data_lm %>% summary()
+
+print("train MSE")
+label  <- old_data_lm %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+
+```
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+### 第三次     
+
+
+```{r}
+#資料生成
+set.seed(123)
+a <- matrix(sample(-2:2,25,replace = T),5,5)
+sigmas <- t(a)%*%diag(1,5)%*%a
+set.seed(12536)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0),sigma = sigmas)
+set.seed(1783)
+x2 <- rmvnorm(n = 100,mean = c(0,0,0,0,0),sigma = diag(1,5))
+set.seed(519)
+x_11 <- rnorm(n = 100)
+set.seed(53)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]+5*x[,2]-3*x[,3]+4*x[,4]+8*x[,5]+10*x2[,1]+5*x2[,2]-3*x2[,3]+4*x2[,4]+8*x2[,5]+sd
+sim <- data.frame(y,x,x2,x_11)
+
+
+set.seed(17773)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0),sigma = sigmas)
+set.seed(18783)
+x2 <- rmvnorm(n = 100,mean = c(0,0,0,0,0),sigma = diag(1,5))
+set.seed(5994)
+x_11 <- rnorm(n = 100)
+set.seed(84)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]+5*x[,2]-3*x[,3]+4*x[,4]+8*x[,5]+10*x2[,1]+5*x2[,2]-3*x2[,3]+4*x2[,4]+8*x2[,5]+sd
+sim_2 <- data.frame(y,x,x2,x_11)
+
+
+set.seed(162752)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0),sigma = sigmas)
+set.seed(1583)
+x2 <- rmvnorm(n = 100,mean = c(0,0,0,0,0),sigma = diag(1,5))
+set.seed(459)
+x_11 <- rnorm(n = 100)
+set.seed(94)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]+5*x[,2]-3*x[,3]+4*x[,4]+8*x[,5]+10*x2[,1]+5*x2[,2]-3*x2[,3]+4*x2[,4]+8*x2[,5]+sd
+sim_3 <- data.frame(y,x,x2,x_11)
+
+
+
+names(sim) <- c("y",paste0("x",1:11))
+names(sim_2) <- c("y",paste0("x",1:11))
+names(sim_3) <- c("y",paste0("x",1:11))
+
+
+
+```
+
+
+
+#### use p-value to Variable Selection
+
+```{r}
+(old_data_lm <- lm(y~.,data = sim)) %>% summary()
+old_data_lm %>% ols_step_forward_p()
+(old_data_lm %<>% ols_step_forward_aic())
+```
+
+```{r}
+md <- formula(y~x1+x3+x5+x6+x7+x8+x9+x10+x11)
+VS <- c(1,3,5,6,7,8,9,10,11)+1
+```
+
+
+
+##### old data 
+
+
+###### regression
+
+```{r}
+old_data_lm$model %>% summary()
+print("train MSE")
+label  <- old_data_lm$model %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm$model %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+#### use Gain to Variable Selection
+
+
+```{r}
+xgb_test <- xgboost(data = data.matrix(sim[,-1]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+
+xgb.importance(model = xgb_test) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+```{r}
+md <- formula(y~x1+x2+x3+x5+x6+x8+x7+x9+x10)
+VS <- c(1,2,3,5,6,7,8,9,10)+1
+```
+
+##### old data 
+
+
+
+
+###### regression
+
+```{r}
+
+old_data_lm <- lm(md,data = sim)
+
+
+
+old_data_lm %>% summary()
+
+print("train MSE")
+label  <- old_data_lm %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+
+```
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+
+## 資料二(一般項加交互作用項)    
+
+regression的表現比資料一差。    
+XGboost還是差不多。  
+
+
+$x_{1 \sim 10}\sim MN(\mu , \Sigma )$
+$\mu=(0,0,0,0,0,0,0,0,0,0)$
+$$\Sigma = \begin{pmatrix}
+1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0\\ 
+0 &  1& 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0\\ 
+0 &  0& 1 & 0 & 0 & 0 & 0 & 0 & 0 & 0\\ 
+0 &  0& 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0\\ 
+0 &  0& 0 & 0 & 1 & 0 & 0 & 0 & 0 & 0\\ 
+0 &  0& 0 & 0 & 0 & 1 & 0 & 0 & 0 & 0\\ 
+0 &  0& 0 & 0 & 0 & 0 & 1 & 0 & 0 & 0\\ 
+0 &  0& 0 & 0 & 0 & 0 & 0 & 1 & 0 & 0\\ 
+0 &  0& 0 & 0 & 0 & 0 & 0 & 0 & 1 & 0\\ 
+0 &  0& 0 & 0 & 0 & 0 & 0 & 0 & 0 & 1
+\end{pmatrix}$$  
+
+$x_{11} \sim N(0,1)$      
+
+$y=10x_1+5x_2-3x_3+4x_4+8x_5-7x_6+9x_7-2x_8+5x_9-4x_{10}+10x_1x_2-7x_3x_4+\epsilon$
+
+$\epsilon \sim N(0,4)$
+
+### 第一次   
+
+```{r}
+set.seed(1423)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(597)
+x_11 <- rnorm(n = 100)
+set.seed(55)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]+5*x[,2]-3*x[,3]+4*x[,4]+8*x[,5]-7*x[,6]+9*x[,7]-2*x[,8]+5*x[,9]-4*x[,10]+10*x[,1]*x[,2]-7*x[,3]*x[,4]+sd
+sim <- data.frame(y,x,x_11)
+
+
+set.seed(1232)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(599)
+x_11 <- rnorm(n = 100)
+set.seed(57)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]+5*x[,2]-3*x[,3]+4*x[,4]+8*x[,5]-7*x[,6]+9*x[,7]-2*x[,8]+5*x[,9]-4*x[,10]+10*x[,1]*x[,2]-7*x[,3]*x[,4]+sd
+sim_2 <- data.frame(y,x,x_11)
+
+
+set.seed(125332)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(56699)
+x_11 <- rnorm(n = 100)
+set.seed(5247)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]+5*x[,2]-3*x[,3]+4*x[,4]+8*x[,5]-7*x[,6]+9*x[,7]-2*x[,8]+5*x[,9]-4*x[,10]+10*x[,1]*x[,2]-7*x[,3]*x[,4]+sd
+sim_3 <- data.frame(y,x,x_11)
+
+
+
+
+
+names(sim) <- c("y",paste0("x",1:11))
+names(sim_2) <- c("y",paste0("x",1:11))
+names(sim_3) <- c("y",paste0("x",1:11))
+```
+
+#### use p-value to Variable Selection
+
+
+```{r}
+(old_data_lm <- lm(y~.,data = sim)) %>% summary()
+old_data_lm %>% ols_step_forward_p()
+(old_data_lm %<>% ols_step_forward_aic())
+```
+
+
+
+```{r}
+md <- formula(y~x1+x2+x3+x4+x5+x6+x7+x9+x10)
+VS <- c(1,2,3,4,5,6,7,9,10)+1
+```
+
+
+
+##### old data 
+
+
+###### regression
+
+```{r}
+old_data_lm$model %>% summary()
+print("train MSE")
+label  <- old_data_lm$model %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm$model %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+#### use Gain to Variable Selection
+
+
+```{r}
+xgb_test <- xgboost(data = data.matrix(sim[,-1]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+
+xgb.importance(model = xgb_test) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+```{r}
+md <- formula(y~x1+x2+x4+x5+x6+x7+x8+x9+x10)
+VS <- c(1,2,4,5,6,7,8,9,10)+1
+```
+
+##### old data 
+
+
+
+
+###### regression
+
+```{r}
+
+old_data_lm <- lm(md,data = sim)
+
+
+
+old_data_lm %>% summary()
+
+print("train MSE")
+label  <- old_data_lm %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+
+```
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+### 第二次      
+
+```{r}
+set.seed(17423)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(5997)
+x_11 <- rnorm(n = 100)
+set.seed(515)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]+5*x[,2]-3*x[,3]+4*x[,4]+8*x[,5]-7*x[,6]+9*x[,7]-2*x[,8]+5*x[,9]-4*x[,10]+10*x[,1]*x[,2]-7*x[,3]*x[,4]+sd
+sim <- data.frame(y,x,x_11)
+
+
+set.seed(12632)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(5998)
+x_11 <- rnorm(n = 100)
+set.seed(597)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]+5*x[,2]-3*x[,3]+4*x[,4]+8*x[,5]-7*x[,6]+9*x[,7]-2*x[,8]+5*x[,9]-4*x[,10]+10*x[,1]*x[,2]-7*x[,3]*x[,4]+sd
+sim_2 <- data.frame(y,x,x_11)
+
+
+set.seed(18332)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(56499)
+x_11 <- rnorm(n = 100)
+set.seed(517)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]+5*x[,2]-3*x[,3]+4*x[,4]+8*x[,5]-7*x[,6]+9*x[,7]-2*x[,8]+5*x[,9]-4*x[,10]+10*x[,1]*x[,2]-7*x[,3]*x[,4]+sd
+sim_3 <- data.frame(y,x,x_11)
+
+
+
+
+
+names(sim) <- c("y",paste0("x",1:11))
+names(sim_2) <- c("y",paste0("x",1:11))
+names(sim_3) <- c("y",paste0("x",1:11))
+```
+
+
+#### use p-value to Variable Selection
+
+```{r}
+(old_data_lm <- lm(y~.,data = sim)) %>% summary()
+old_data_lm %>% ols_step_forward_p()
+(old_data_lm %<>% ols_step_forward_aic())
+```
+
+
+
+```{r}
+md <- formula(y~x1+x2+x4+x5+x6+x7+x9+x10)
+VS <- c(1,2,4,5,6,7,9,10)+1
+```
+
+
+
+##### old data 
+
+
+###### regression
+
+```{r}
+old_data_lm$model %>% summary()
+print("train MSE")
+label  <- old_data_lm$model %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm$model %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+#### use Gain to Variable Selection
+
+
+```{r}
+xgb_test <- xgboost(data = data.matrix(sim[,-1]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+
+xgb.importance(model = xgb_test) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+```{r}
+md <- formula(y~x1+x2+x3+x4+x5+x6+x7+x9)
+VS <- c(1,2,3,4,5,6,7,9)+1
+```
+
+##### old data 
+
+
+
+
+###### regression
+
+```{r}
+
+old_data_lm <- lm(md,data = sim)
+
+
+
+old_data_lm %>% summary()
+
+print("train MSE")
+label  <- old_data_lm %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+
+```
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+
+### 第三次     
+
+```{r}
+set.seed(1443)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(5697)
+x_11 <- rnorm(n = 100)
+set.seed(1005)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]+5*x[,2]-3*x[,3]+4*x[,4]+8*x[,5]-7*x[,6]+9*x[,7]-2*x[,8]+5*x[,9]-4*x[,10]+10*x[,1]*x[,2]-7*x[,3]*x[,4]+sd
+sim <- data.frame(y,x,x_11)
+
+
+set.seed(13232)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(1009)
+x_11 <- rnorm(n = 100)
+set.seed(547)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]+5*x[,2]-3*x[,3]+4*x[,4]+8*x[,5]-7*x[,6]+9*x[,7]-2*x[,8]+5*x[,9]-4*x[,10]+10*x[,1]*x[,2]-7*x[,3]*x[,4]+sd
+sim_2 <- data.frame(y,x,x_11)
+
+
+set.seed(1232)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(5659)
+x_11 <- rnorm(n = 100)
+set.seed(5867)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]+5*x[,2]-3*x[,3]+4*x[,4]+8*x[,5]-7*x[,6]+9*x[,7]-2*x[,8]+5*x[,9]-4*x[,10]+10*x[,1]*x[,2]-7*x[,3]*x[,4]+sd
+sim_3 <- data.frame(y,x,x_11)
+
+
+
+
+
+names(sim) <- c("y",paste0("x",1:11))
+names(sim_2) <- c("y",paste0("x",1:11))
+names(sim_3) <- c("y",paste0("x",1:11))
+```
+
+#### use p-value to Variable Selection
+
+```{r}
+(old_data_lm <- lm(y~.,data = sim)) %>% summary()
+old_data_lm %>% ols_step_forward_p()
+(old_data_lm %<>% ols_step_forward_aic())
+```
+
+```{r}
+md <- formula(y~.-x11)
+VS <- 1:10+1
+```
+
+
+
+##### old data 
+
+
+###### regression
+
+```{r}
+old_data_lm$model %>% summary()
+print("train MSE")
+label  <- old_data_lm$model %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm$model %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+#### use Gain to Variable Selection
+
+
+```{r}
+xgb_test <- xgboost(data = data.matrix(sim[,-1]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+
+xgb.importance(model = xgb_test) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+```{r}
+md <- formula(y~.-x4)
+VS <- c(1,2,3,5,6,7,8,9,10,11)+1
+```
+
+##### old data 
+
+
+
+
+###### regression
+
+```{r}
+
+old_data_lm <- lm(md,data = sim)
+
+
+
+old_data_lm %>% summary()
+
+print("train MSE")
+label  <- old_data_lm %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+
+```
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+
+## 資料三(只有交互作用項)   
+
+regression的表現又更差了，train和test的MSE差距更大了。  
+XGboost還是差不多的狀況。  
+
+$x_{1 \sim 10}\sim MN(\mu , \Sigma )$
+$\mu=(0,0,0,0,0,0,0,0,0,0)$
+$$\Sigma = \begin{pmatrix}
+1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0\\ 
+0 &  1& 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0\\ 
+0 &  0& 1 & 0 & 0 & 0 & 0 & 0 & 0 & 0\\ 
+0 &  0& 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0\\ 
+0 &  0& 0 & 0 & 1 & 0 & 0 & 0 & 0 & 0\\ 
+0 &  0& 0 & 0 & 0 & 1 & 0 & 0 & 0 & 0\\ 
+0 &  0& 0 & 0 & 0 & 0 & 1 & 0 & 0 & 0\\ 
+0 &  0& 0 & 0 & 0 & 0 & 0 & 1 & 0 & 0\\ 
+0 &  0& 0 & 0 & 0 & 0 & 0 & 0 & 1 & 0\\ 
+0 &  0& 0 & 0 & 0 & 0 & 0 & 0 & 0 & 1
+\end{pmatrix}$$  
+
+$x_{11} \sim N(0,1)$      
+
+$y=+10x_1x_2-7x_3x_4-8x_6x_9+\epsilon$
+
+$\epsilon \sim N(0,4)$
+
+### 第一次   
+
+```{r}
+set.seed(1423)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(597)
+x_11 <- rnorm(n = 100)
+set.seed(55)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]*x[,2]-7*x[,3]*x[,4]-8*x[,6]*x[,9]+sd
+sim <- data.frame(y,x,x_11)
+
+
+set.seed(1232)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(599)
+x_11 <- rnorm(n = 100)
+set.seed(57)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]*x[,2]-7*x[,3]*x[,4]-8*x[,6]*x[,9]+sd
+sim_2 <- data.frame(y,x,x_11)
+
+set.seed(1252)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(5679)
+x_11 <- rnorm(n = 100)
+set.seed(512)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]*x[,2]-7*x[,3]*x[,4]-8*x[,6]*x[,9]+sd
+sim_3 <- data.frame(y,x,x_11)
+
+
+
+
+names(sim) <- c("y",paste0("x",1:11))
+names(sim_2) <- c("y",paste0("x",1:11))
+names(sim_3) <- c("y",paste0("x",1:11))
+```
+
+
+#### use p-value to Variable Selection
+
+
+```{r}
+(old_data_lm <- lm(y~.,data = sim)) %>% summary()
+old_data_lm %>% ols_step_forward_p()
+(old_data_lm %<>% ols_step_forward_aic())
+```
+
+
+
+```{r}
+md <- formula(y~x1+x3+x5+x6+x9+x10)
+VS <- c(1,3,5,6,9,10)+1
+```
+
+
+
+##### old data 
+
+
+###### regression
+
+```{r}
+old_data_lm$model %>% summary()
+print("train MSE")
+label  <- old_data_lm$model %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm$model %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+#### use Gain to Variable Selection
+
+
+```{r}
+xgb_test <- xgboost(data = data.matrix(sim[,-1]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+
+xgb.importance(model = xgb_test) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+```{r}
+md <- formula(y~x1+x2+x4+x6+x9+x10)
+VS <- c(1,2,4,6,9,10)+1
+```
+
+##### old data 
+
+
+
+
+###### regression
+
+```{r}
+
+old_data_lm <- lm(md,data = sim)
+
+
+
+old_data_lm %>% summary()
+
+print("train MSE")
+label  <- old_data_lm %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+
+```
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+
+### 第二次     
+
+```{r}
+set.seed(17423)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(5997)
+x_11 <- rnorm(n = 100)
+set.seed(515)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]*x[,2]-7*x[,3]*x[,4]-8*x[,6]*x[,9]+sd
+sim <- data.frame(y,x,x_11)
+
+
+set.seed(12632)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(5998)
+x_11 <- rnorm(n = 100)
+set.seed(597)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]*x[,2]-7*x[,3]*x[,4]-8*x[,6]*x[,9]+sd
+sim_2 <- data.frame(y,x,x_11)
+
+set.seed(12772)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(565579)
+x_11 <- rnorm(n = 100)
+set.seed(51452)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]*x[,2]-7*x[,3]*x[,4]-8*x[,6]*x[,9]+sd
+sim_3 <- data.frame(y,x,x_11)
+
+
+
+
+names(sim) <- c("y",paste0("x",1:11))
+names(sim_2) <- c("y",paste0("x",1:11))
+names(sim_3) <- c("y",paste0("x",1:11))
+```
+
+#### use p-value to Variable Selection
+
+```{r}
+(old_data_lm <- lm(y~.,data = sim)) %>% summary()
+old_data_lm %>% ols_step_forward_p()
+(old_data_lm %<>% ols_step_forward_aic())
+```
+
+```{r}
+md <- formula(y~x1+x3)
+VS <- c(1,3)+1
+```
+
+
+
+##### old data 
+
+
+###### regression
+
+```{r}
+old_data_lm$model %>% summary()
+print("train MSE")
+label  <- old_data_lm$model %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm$model %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+#### use Gain to Variable Selection
+
+
+```{r}
+xgb_test <- xgboost(data = data.matrix(sim[,-1]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+
+xgb.importance(model = xgb_test) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+```{r}
+md <- formula(y~x2+x9)
+VS <- c(2,9)+1
+```
+
+##### old data 
+
+
+
+
+###### regression
+
+```{r}
+
+old_data_lm <- lm(md,data = sim)
+
+
+
+old_data_lm %>% summary()
+
+print("train MSE")
+label  <- old_data_lm %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+
+```
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+
+
+
+### 第三次    
+
+
+```{r}
+set.seed(1443)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(5697)
+x_11 <- rnorm(n = 100)
+set.seed(1005)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]*x[,2]-7*x[,3]*x[,4]-8*x[,6]*x[,9]+sd
+sim <- data.frame(y,x,x_11)
+
+
+set.seed(13232)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(1009)
+x_11 <- rnorm(n = 100)
+set.seed(547)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]*x[,2]-7*x[,3]*x[,4]-8*x[,6]*x[,9]+sd
+sim_2 <- data.frame(y,x,x_11)
+
+set.seed(1172)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(5652)
+x_11 <- rnorm(n = 100)
+set.seed(514)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]*x[,2]-7*x[,3]*x[,4]-8*x[,6]*x[,9]+sd
+sim_3 <- data.frame(y,x,x_11)
+
+
+
+
+names(sim) <- c("y",paste0("x",1:11))
+names(sim_2) <- c("y",paste0("x",1:11))
+names(sim_3) <- c("y",paste0("x",1:11))
+```
+
+#### use p-value to Variable Selection
+
+```{r}
+(old_data_lm <- lm(y~.,data = sim)) %>% summary()
+old_data_lm %>% ols_step_forward_p()
+(old_data_lm %<>% ols_step_forward_aic())
+```
+
+```{r}
+md <- formula(y~x6+x7+x11)
+VS <- c(6,7,11)+1
+```
+
+
+
+##### old data 
+
+
+###### regression
+
+```{r}
+old_data_lm$model %>% summary()
+print("train MSE")
+label  <- old_data_lm$model %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm$model %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+#### use Gain to Variable Selection
+
+
+```{r}
+xgb_test <- xgboost(data = data.matrix(sim[,-1]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+
+xgb.importance(model = xgb_test) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+```{r}
+md <- formula(y~x2+x3+x6)
+VS <- c(2,3,6)+1
+```
+
+##### old data 
+
+
+
+
+###### regression
+
+```{r}
+
+old_data_lm <- lm(md,data = sim)
+
+
+
+old_data_lm %>% summary()
+
+print("train MSE")
+label  <- old_data_lm %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+
+```
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+
+
+## 資料四(只有一個3變數的交互作用項)   
+
+還是差不多。   
+
+$x_{1 \sim 10}\sim MN(\mu , \Sigma )$
+$\mu=(0,0,0,0,0,0,0,0,0,0)$
+$$\Sigma = \begin{pmatrix}
+1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0\\ 
+0 &  1& 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0\\ 
+0 &  0& 1 & 0 & 0 & 0 & 0 & 0 & 0 & 0\\ 
+0 &  0& 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0\\ 
+0 &  0& 0 & 0 & 1 & 0 & 0 & 0 & 0 & 0\\ 
+0 &  0& 0 & 0 & 0 & 1 & 0 & 0 & 0 & 0\\ 
+0 &  0& 0 & 0 & 0 & 0 & 1 & 0 & 0 & 0\\ 
+0 &  0& 0 & 0 & 0 & 0 & 0 & 1 & 0 & 0\\ 
+0 &  0& 0 & 0 & 0 & 0 & 0 & 0 & 1 & 0\\ 
+0 &  0& 0 & 0 & 0 & 0 & 0 & 0 & 0 & 1
+\end{pmatrix}$$  
+
+$x_{11} \sim N(0,1)$      
+
+$y=10x_1x_2x_3+\epsilon$
+
+$\epsilon \sim N(0,4)$
+
+### 第一次    
+ 
+```{r}
+set.seed(1423)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(597)
+x_11 <- rnorm(n = 100)
+set.seed(55)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]*x[,2]*x[,3]+sd
+sim <- data.frame(y,x,x_11)
+
+
+set.seed(1232)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(599)
+x_11 <- rnorm(n = 100)
+set.seed(57)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]*x[,2]*x[,3]+sd
+sim_2 <- data.frame(y,x,x_11)
+
+
+
+
+set.seed(123972)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(59977)
+x_11 <- rnorm(n = 100)
+set.seed(587)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]*x[,2]*x[,3]+sd
+sim_3 <- data.frame(y,x,x_11)
+
+
+
+
+names(sim) <- c("y",paste0("x",1:11))
+names(sim_2) <- c("y",paste0("x",1:11))
+names(sim_3) <- c("y",paste0("x",1:11))
+```
+
+#### use p-value to Variable Selection    
+
+
+```{r}
+(old_data_lm <- lm(y~.,data = sim)) %>% summary()
+old_data_lm %>% ols_step_forward_p()
+(old_data_lm %<>% ols_step_forward_aic())
+```
+
+
+
+```{r}
+md <- formula(y~x3+x4+x6+x8+x9+x11)
+VS <- c(3,4,6,8,9,11)+1
+```
+
+
+
+##### old data 
+
+
+###### regression
+
+```{r}
+old_data_lm$model %>% summary()
+print("train MSE")
+label  <- old_data_lm$model %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm$model %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+#### use Gain to Variable Selection
+
+
+```{r}
+xgb_test <- xgboost(data = data.matrix(sim[,-1]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+
+xgb.importance(model = xgb_test) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+```{r}
+md <- formula(y~x1+x2+x3+x5+x6+x11)
+VS <- c(1,2,3,5,6,11)+1
+```
+
+##### old data 
+
+
+
+
+###### regression
+
+```{r}
+
+old_data_lm <- lm(md,data = sim)
+
+
+
+old_data_lm %>% summary()
+
+print("train MSE")
+label  <- old_data_lm %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+
+```
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+### 第二次     
+
+```{r}
+set.seed(17423)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(5997)
+x_11 <- rnorm(n = 100)
+set.seed(515)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]*x[,2]*x[,3]+sd
+sim <- data.frame(y,x,x_11)
+
+
+set.seed(12632)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(5998)
+x_11 <- rnorm(n = 100)
+set.seed(597)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]*x[,2]*x[,3]+sd
+sim_2 <- data.frame(y,x,x_11)
+
+
+
+set.seed(1292)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(5477)
+x_11 <- rnorm(n = 100)
+set.seed(566)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]*x[,2]*x[,3]+sd
+sim_3 <- data.frame(y,x,x_11)
+
+
+
+
+names(sim) <- c("y",paste0("x",1:11))
+names(sim_2) <- c("y",paste0("x",1:11))
+names(sim_3) <- c("y",paste0("x",1:11))
+```
+
+#### use p-value to Variable Selection
+
+```{r}
+(old_data_lm <- lm(y~.,data = sim)) %>% summary()
+old_data_lm %>% ols_step_forward_p()
+(old_data_lm %<>% ols_step_forward_aic())
+```
+
+
+```{r}
+md <- formula(y~x1+x2+x11)
+VS <- c(1,2,11)+1
+```
+
+
+
+##### old data 
+
+
+###### regression
+
+```{r}
+old_data_lm$model %>% summary()
+print("train MSE")
+label  <- old_data_lm$model %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm$model %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+#### use Gain to Variable Selection
+
+
+```{r}
+xgb_test <- xgboost(data = data.matrix(sim[,-1]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+
+xgb.importance(model = xgb_test) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+```{r}
+md <- formula(y~x1+x2+x9)
+VS <- c(1,2,9)+1
+```
+
+##### old data 
+
+
+
+
+###### regression
+
+```{r}
+
+old_data_lm <- lm(md,data = sim)
+
+
+
+old_data_lm %>% summary()
+
+print("train MSE")
+label  <- old_data_lm %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+
+```
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+
+### 第三次    
+
+
+```{r}
+set.seed(1443)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(5697)
+x_11 <- rnorm(n = 100)
+set.seed(1005)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]*x[,2]*x[,3]+sd
+sim <- data.frame(y,x,x_11)
+
+
+set.seed(13232)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(1009)
+x_11 <- rnorm(n = 100)
+set.seed(547)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]*x[,2]*x[,3]+sd
+sim_2 <- data.frame(y,x,x_11)
+
+
+
+set.seed(124492)
+x <- rmvnorm(n = 100,mean = c(0,0,0,0,0,0,0,0,0,0),sigma = diag(1,10))
+set.seed(547557)
+x_11 <- rnorm(n = 100)
+set.seed(56226)
+sd <- rnorm(100,sd = 4)
+y <- 10*x[,1]*x[,2]*x[,3]+sd
+sim_3 <- data.frame(y,x,x_11)
+
+
+
+
+names(sim) <- c("y",paste0("x",1:11))
+names(sim_2) <- c("y",paste0("x",1:11))
+names(sim_3) <- c("y",paste0("x",1:11))
+```
+
+
+#### use p-value to Variable Selection   
+
+```{r}
+(old_data_lm <- lm(y~.,data = sim)) %>% summary()
+old_data_lm %>% ols_step_forward_p()
+(old_data_lm %<>% ols_step_forward_aic())
+```  
+
+```{r}
+md <- formula(y~x2+x9+x11)
+VS <- c(2,9,11)+1
+```
+
+
+
+##### old data 
+
+
+###### regression
+
+```{r}
+old_data_lm$model %>% summary()
+print("train MSE")
+label  <- old_data_lm$model %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm$model %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+#### use Gain to Variable Selection
+
+
+```{r}
+xgb_test <- xgboost(data = data.matrix(sim[,-1]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+
+xgb.importance(model = xgb_test) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+```{r}
+md <- formula(y~x2+x3+x1)
+VS <- 1:3+1
+```
+
+##### old data 
+
+
+
+
+###### regression
+
+```{r}
+
+old_data_lm <- lm(md,data = sim)
+
+
+
+old_data_lm %>% summary()
+
+print("train MSE")
+label  <- old_data_lm %>% predict(sim)
+mean((sim$y-label)^2)
+print("test MSE")
+label  <- old_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+
+###### XGboost
+
+```{r}
+
+old_data_xgb <- xgboost(data = data.matrix(sim[,VS]), 
+label = sim[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim[,VS])))
+mean((sim$y-label)^2)
+
+print("test MSE")
+label  <- predict(old_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = old_data_xgb)
+
+xgb.importance(model = old_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+
+```
+
+
+##### new data 
+
+
+###### regression
+
+```{r}
+new_data_lm <- lm(md,data = sim_2)
+
+
+
+new_data_lm %>% summary()
+
+print("train MSE")
+label  <- new_data_lm %>% predict(sim_2)
+mean((sim_2$y-label)^2)
+print("test MSE")
+label  <- new_data_lm %>% predict(sim_3)
+mean((sim_3$y-label)^2)
+```
+
+###### XGboost
+
+```{r}
+
+new_data_xgb <- xgboost(data = data.matrix(sim_2[,VS]), 
+label = sim_2[,"y"], 
+# eta = 0.5,
+# max_depth = 10, 
+nround=25, 
+# subsample = 0.7,
+# colsample_bytree = 0.7,
+objective = "reg:squarederror",
+verbose = 0
+)
+print("train MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_2[,VS])))
+mean((sim_2$y-label)^2)
+
+print("test MSE")
+label  <- predict(new_data_xgb,xgb.DMatrix(data.matrix(sim_3[,VS])))
+mean((sim_3$y-label)^2)
+
+xgb.importance(model = new_data_xgb)
+
+xgb.importance(model = new_data_xgb) %>% 
+  xgb.plot.importance(top_n = 11)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

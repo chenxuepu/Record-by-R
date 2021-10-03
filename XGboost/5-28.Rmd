@@ -1,0 +1,302 @@
+---
+title: "BGA"
+author: '610811101'
+date: "2020/5/28"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+```{r include=FALSE}
+library(OneR)
+library(magrittr)
+library(iml)
+library(caret)
+library(xgboost)
+library(MASS)
+library("highcharter")
+library(ROCR)
+library(ROCit)
+library(plotROC)
+library(boot)
+library(randomForest)
+# load("G:/我的雲端硬碟/BGG/data_test.RData")
+load("G:/我的雲端硬碟/BGG/data_7wonder_2.RData")
+```
+
+
+
+```{r}
+# data$speed %>% table
+data <- data[data$speed %in% c("Real-time \u0080 Fast speed","Real-time \u0080 Normal speed","Real-time \u0080 Slow speed"),]
+
+for(i in c(10,12:25,27:36)){
+  data[,i] %<>% as.character() %>% as.numeric()
+}
+data$Wonder_side_A <-  ifelse(test = data$Wonder_side_A=="yes",yes = 1,no = 0)
+# str(data)
+# summary(data)
+data$win <- ifelse(data$Ranking==1,1,0)
+```
+
+
+# XGboost  
+
+在看了程式碼後，XGboost Feature Importances的值是該變數的[分割收益（損失變化）或葉值]的總和。  
+
+在[R的頁面](https://www.rdocumentation.org/packages/xgboost/versions/0.6.4.1/topics/xgb.importance )中  
+Gain:每個特徵對模型的貢獻。(僅適用於樹模型)   
+Cover:與該功能相關的觀測數量的度量。(僅適用於樹模型)   
+Weight:表示將某要素加入樹木的相對次數。    
+  
+  
+```{r}
+data$People <- as.factor(data$People)
+
+sec <- function(x){
+  x <- as.numeric(x)
+  x[1]*60+x[2]
+}
+
+data$Thinking_time <- strsplit(data$Thinking_time,split = "[:,h]") %>%
+   sapply(FUN = sec)
+data$Wonder_ID <- as.factor(data$Wonder_ID)
+
+data$Guilds[is.na(data$Guilds)] <- 0 
+data$Manufactured_Goods[is.na(data$Manufactured_Goods)] <- 0 
+
+```
+
+分數果然是最重要的，另外可以看到在ELO_rank是第二重要的，剩下比較重要的變數很多都是跟分數有關的。
+
+```{r}
+dmy <- dummyVars(formula = " ~ .",data = data[,c("People","Wonder_ID")])
+test <- data.frame(predict(dmy, newdata = data),data[,c("win","Thinking_time","VP_from_Military_Conflicts_Victory","VP_from_Military_Conflicts_Defeat","VP_from_Treasury_Contents","VP_from_Wonder","VP_from_Civilian_Structures","VP_from_Scientific_Structures","VP_from_Commercial_Structures","VP_from_Guilds","Constructed_stages_of_the_Wonder","Cards_discarded","Chained_constructions","Coins_spent_on_commerce","Coins_gained_through_commerce","Shields","Civilian_Structures","Scientific_Structures","Guilds","Military_Structures","Commercial_Structures","Raw_Materials","Manufactured_Goods","ELO_rank","point")])
+
+# test[,-which(names(test)=="win")]
+xg.data <- xgb.DMatrix(data.matrix(test[,-which(names(test)=="win")]), label=test$win)
+
+set.seed(136)
+xgb <- xgboost(data = data.matrix(test[,-which(names(test)=="win")]), 
+label = test[,"win"], 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "binary:logistic"
+)
+xgb.importance(model = xgb)
+
+xgb.importance(model = xgb) %>% 
+  xgb.plot.importance(top_n = 10)
+
+
+
+label <- predict(xgb,xg.data)
+Roc <- rocit(score=label,class=test$win )
+
+plot(Roc,values=F)
+  
+print("依圖中，選擇FPR約為0.01的點")
+(Cutoff <- which(Roc$FPR>=0.01) %>%
+  min %>%
+  Roc$Cutoff[.])
+  
+table(test$win,label>Cutoff)
+```
+
+## partial dependence plot   
+
+這個方法只能看個別變數的，因為這個要跑比較久，所以就試著跑了2個看看。
+```{r}
+features <- test[,-which(names(test)=="win")]
+response <- test$win
+pred <- function(model, newdata)  {
+  results <- predict(model, xgb.DMatrix(data.matrix(newdata)))
+  return(results)
+}
+
+predictor.xgb <- Predictor$new(
+  model = xgb, 
+  data = features, 
+  y = response, 
+  predict.fun = pred,
+  class = "classification"
+  )
+pdp.xgb.point <- FeatureEffect$new(predictor.xgb, feature = "point", method = "pdp")
+plot(pdp.xgb.point) + ggtitle("XGboost-point")
+pdp.xgb.ELO_rank <- FeatureEffect$new(predictor.xgb, feature = "ELO_rank", method = "pdp")
+plot(pdp.xgb.ELO_rank) + ggtitle("XGboost-ELO_rank")
+```
+
+
+
+ELO_rank的重要性遙遙領先，跟我預料得差不多。
+
+```{r}
+dmy <- dummyVars(formula = " ~ .",data = data[,c("People","Wonder_ID")])
+test <- data.frame(predict(dmy, newdata = data),data[,c("win","ELO_rank")])
+
+# test[,-which(names(test)=="win")]
+xg.data <- xgb.DMatrix(data.matrix(test[,-which(names(test)=="win")]), label=test$win)
+
+set.seed(136)
+xgb <- xgboost(data = data.matrix(test[,-which(names(test)=="win")]), 
+label = test[,"win"], 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "binary:logistic"
+)
+xgb.importance(model = xgb)
+
+xgb.importance(model = xgb) %>% 
+  xgb.plot.importance(top_n = 10)
+
+label <- predict(xgb,xg.data)
+Roc <- rocit(score=label,class=test$win )
+
+plot(Roc,values=F)
+  
+print("依圖中，選擇FPR約為0.3的點")
+(Cutoff <- which(Roc$FPR>=0.3) %>%
+  min %>%
+  Roc$Cutoff[.])
+  
+table(test$win,label>Cutoff)
+```
+
+partial dependence plot   
+
+```{r}
+features <- test[,-which(names(test)=="win")]
+response <- test$win
+pred <- function(model, newdata)  {
+  results <- predict(model, xgb.DMatrix(data.matrix(newdata)))
+  return(results)
+}
+
+predictor.xgb <- Predictor$new(
+  model = xgb, 
+  data = features, 
+  y = response, 
+  predict.fun = pred,
+  class = "classification"
+  )
+
+pdp.xgb.ELO_rank <- FeatureEffect$new(predictor.xgb, feature = "ELO_rank", method = "pdp")
+plot(pdp.xgb.ELO_rank) + ggtitle("XGboost-ELO_rank")
+```
+
+
+
+
+# PCA+oneR  
+
+加入PCA的生成的變數後，仍然沒有改變。
+
+
+```{r} 
+
+oneR_data <- data[,c("Thinking_time","VP_from_Military_Conflicts_Victory","VP_from_Military_Conflicts_Defeat","VP_from_Treasury_Contents","VP_from_Wonder","VP_from_Civilian_Structures","VP_from_Scientific_Structures","VP_from_Commercial_Structures","VP_from_Guilds","Constructed_stages_of_the_Wonder","Cards_discarded","Chained_constructions","Coins_spent_on_commerce","Coins_gained_through_commerce","Shields","Civilian_Structures","Scientific_Structures","Guilds","Military_Structures","Commercial_Structures","Raw_Materials","Manufactured_Goods","ELO_rank","point","People","Wonder_ID","win")]
+pca <- prcomp(formula = ~.-win-People-Wonder_ID,  
+              data = oneR_data,                           
+              scale = TRUE)
+plot(pca,         
+     type="line", 
+     main="Scree Plot") 
+oneR_data <- cbind(pca$x,oneR_data)
+oneR_data$win <- as.factor(oneR_data$win)
+oneR_model <- OneR::optbin(oneR_data) %>%
+  OneR::OneR()
+
+summary(oneR_model)
+plot(oneR_model)
+```
+
+
+
+
+
+
+# R package search   
+
+
+packagefinder   
+[CRAN](https://cran.r-project.org/web/packages/packagefinder/index.html)    
+[pdf](https://cran.r-project.org/web/packages/packagefinder/packagefinder.pdf)  
+[範例](https://rviews.rstudio.com/2018/10/22/searching-for-r-packages/)   
+
+```{r paged.print=TRUE}
+library(packagefinder)
+
+
+# exploreFields("package")
+
+# findPackage("package")
+# go(13464)
+# go
+```
+
+pkgsearch    
+[CRAN](https://cran.r-project.org/web/packages/pkgsearch/index.html)  
+[pdf](https://cran.r-project.org/web/packages/pkgsearch/pkgsearch.pdf)  
+ 
+
+```{r}
+library(pkgsearch)
+
+(pkg <- advanced_search("package"))
+
+cran_top_downloaded()
+
+cran_trending()
+
+ps("package")
+
+# pkg_search_addin()
+
+ps("whoami")
+
+```
+
+
+
+CRAN Task Views  
+https://cran.r-project.org/web/views/    
+
+
+ctv  
+[CRAN](https://cran.r-project.org/web/packages/ctv/index.html)  
+[pdf](https://cran.r-project.org/web/packages/ctv/ctv.pdf)  
+
+```{r}
+library(ctv)
+# ctv :: install.views("Econometrics")
+# ctv :: update.views("Econometrics")
+
+# (view <- available.views())
+# update.views(view)
+```
+
+一些網站   
+
+https://r-pkg.org/   
+
+pkgsearch這個package就是使用這個網站的。    
+
+https://rdrr.io/find/?repos=cran%2Cbioc%2Crforge%2Cgithub&page=0&fuzzy_slug=  
+
+
+
+https://rseek.org/   
+  
+
