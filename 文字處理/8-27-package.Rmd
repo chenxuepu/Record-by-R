@@ -1,0 +1,209 @@
+---
+title: "R-package"
+author: '610811101'
+date: "2020/8/27"
+---
+
+LDA
+
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(eval = TRUE, echo=TRUE, warning=FALSE, message=FALSE, cache = TRUE)
+set.seed(2016L)
+```
+
+
+```{r include=FALSE}
+library(tidyverse)
+library(jiebaR)
+library(highcharter)
+library(tidytext)
+# library(quanteda)
+library("Rtsne")
+library(magrittr)
+library(wordcloud)
+library(word2vec)
+library(proxy)
+library(uwot)
+library(udpipe)
+data_package <- tools::CRAN_package_db() %>%
+  select(Package,Title,Description,Imports,Author)
+# data_package <- data_package %>%
+#   select(Package,Title,Description,Description)
+
+# is_RStudio <- ifelse(grepl("RStudio",data_package$Author),"RStudio","others")
+Rstudio_pg <- c("tidyverse","ggplot2","dplyr","tidyr","purrr","stringr","shiny","rmarkdown","flexdashboard","tensorflow","tidymodels","sparklyr","plumber","reticulate")
+
+
+# is_RStudio <- ifelse(grepl("RStudio",package_Imports$Author),ifelse(package_Imports$Package %in% Rstudio_pg,"best","RStudio"),"others")
+load("G:\\我的雲端硬碟\\meeting\\Task_Views.RData")
+data_package <- left_join(data_package,Task_Views,by = "Package")
+data_package <- data_package[!is.na(data_package$Topics),]
+
+
+
+files <- paste0(R.home(),"/library")
+packeage_base <- dir(files)
+data_base <- data.frame("Package" = packeage_base,"Title" = NA,"Description" = NA,"Imports" = NA,"Author" = NA,"Topics" = "base" )
+for(i in 1:length(packeage_base)){
+  pg_file <- paste0(files,"/",packeage_base[i],"/DESCRIPTION")
+  x <- readLines(pg_file)
+  x <- sapply(x, function(x) strsplit(x, ":")[[1]][1:2], USE.NAMES=FALSE) %>% t()
+  data_base$Title[i] <- x[x[,1]=="Title",2]
+  data_base$Description[i] <- x[x[,1]=="Description",2]
+  data_base$Author[i] <- x[x[,1]=="Author",2]
+  rm(x)
+}
+
+data_package <- rbind(data_package,data_base)
+rm(list = ls()[!ls() %in% c("data_package","Rstudio_pg")])
+```
+
+
+# find K for LDA  
+
+minimization:
+  Arun2010 
+  CaoJuan2009 
+maximization:
+  Deveaud2014 
+  Griffiths2004 
+
+```{r}
+library("ldatuning")
+
+package_Description <- data_package %>%   
+  unnest_tokens(word,Description) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(Package,word,sort = T) %>%
+  bind_tf_idf(word,Package,n) %>%
+  anti_join(stop_words, by = c("word" = "word")) %>%
+  filter(idf>2.5) %>%
+  cast_dtm(Package,word,n)
+
+
+result <- FindTopicsNumber(
+  package_Description,
+  topics = seq(from = 2, to = 50, by = 1),
+  metrics = c("Griffiths2004", "CaoJuan2009", "Arun2010", "Deveaud2014"),
+  method = "Gibbs",
+  control = list(seed = 77),
+  mc.cores = 4L,
+  verbose = TRUE
+)
+
+FindTopicsNumber_plot(result)
+
+
+```
+
+
+
+
+# LDA  
+
+
+```{r}
+dtm <- Matrix::sparseMatrix(i=package_Description$i, 
+                           j=package_Description$j, 
+                           x=package_Description$v, 
+                           dims=c(package_Description$nrow, package_Description$ncol),
+                           dimnames = package_Description$dimnames)
+```
+
+
+
+```{r}
+library(text2vec)
+
+lda = LDA$new(n_topics = 10)
+doc_topic_distr  <- lda$fit_transform(dtm)
+
+barplot(doc_topic_distr[1, ], xlab = "topic", 
+        ylab = "proportion", ylim = c(0, 1), 
+        names.arg = 1:ncol(doc_topic_distr))
+
+
+
+barplot(doc_topic_distr[2, ], xlab = "topic", 
+        ylab = "proportion", ylim = c(0, 1), 
+        names.arg = 1:ncol(doc_topic_distr))
+
+
+
+barplot(doc_topic_distr[10, ], xlab = "topic", 
+        ylab = "proportion", ylim = c(0, 1), 
+        names.arg = 1:ncol(doc_topic_distr))
+
+```
+
+```{r}
+lda$get_top_words(n = 10, topic_number = 1:10, lambda = 1)
+
+```
+
+
+```{r}
+lda$get_top_words(n = 10, topic_number = 1:10, lambda = 0.2)
+
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, eval = TRUE}
+lda$plot(out.dir = "8-27-package_files/ldavis", open.browser = FALSE)
+```
+```{r, eval=FALSE}
+lda$plot()
+```
+
+這裡本來有一張圖，可是不知道為甚麼，show不出來。  
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <title>LDAvis</title>
+  <script src="8-27-package_files/ldavis/d3.v3.js"></script>
+  <script src="8-27-package_files/ldavis/ldavis.js"></script>
+  <link rel="stylesheet" type="text/css" href="8-27-package_files/ldavis/lda.css">
+</head>
+
+<body>
+  <div id = "lda"></div>
+  <script>
+    var vis = new LDAvis("#lda", "8-27-package_files/ldavis/lda.json");
+  </script>
+</body>
+
+
+# LSA 
+
+```{r}
+tfidf = TfIdf$new()
+lsa = LSA$new(n_topics = 10)
+
+# pipe friendly transformation
+doc_embeddings =  fit_transform(dtm, tfidf) %>%
+  fit_transform(lsa)
+
+```
+
+
+```{r}
+barplot(doc_embeddings[1, ], xlab = "topic", 
+        ylab = "proportion", ylim = c(0, 1), 
+        names.arg = 1:ncol(doc_embeddings))
+
+
+
+barplot(doc_embeddings[2, ], xlab = "topic", 
+        ylab = "proportion", ylim = c(0, 1), 
+        names.arg = 1:ncol(doc_embeddings))
+
+
+
+barplot(doc_embeddings[10, ], xlab = "topic", 
+        ylab = "proportion", ylim = c(0, 1), 
+        names.arg = 1:ncol(doc_embeddings))
+```
+
+
+
+
+

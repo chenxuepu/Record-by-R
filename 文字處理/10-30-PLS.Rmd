@@ -1,0 +1,237 @@
+---
+title: "Partial least squares"
+author: '610811101'
+date: "2020/10/30"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+
+
+```{r include=FALSE}
+library(highcharter)
+library(tidyverse)
+library(tidytext)
+library(Rtsne)
+library(magrittr)
+library(quanteda)# textstat_dist
+library(uwot)
+library(icd.data)
+library(pls)
+library(caret)
+```
+
+
+
+
+```{r}
+finaldata9815 <- read.csv("G:/我的雲端硬碟/meeting/finaldata9815.csv")
+data_out <- read.csv("G:/我的雲端硬碟/meeting/data_out.csv")
+data_in <- read.csv("G:/我的雲端硬碟/meeting/data_in.csv")
+
+# data(icd10cm2016)
+
+```
+
+
+# finaldata9815   
+
+```{r}
+categories_levels <- c("d","c","cc","ccc","b","bb","bbb","a","aa","aaa")
+
+finaldata9815$LTR.rating.categories <- factor(finaldata9815$LTR.rating.categories,levels = categories_levels)
+colname <- c("IC","OM","TDL","DP","MBA","RDA","REA","CEA","CBA","TA","beta","sigma","size","S.P.500.return")
+finaldata9815 <- finaldata9815[,c(colname,"LTR.rating.categories")]
+finaldata9815 <- finaldata9815[!(is.na(finaldata9815) %>% rowSums()),]
+finaldata <- finaldata9815[,colname]
+# finaldata <- finaldata[!(is.na(finaldata) %>% rowSums()),]
+```
+
+## Partial least squares  
+
+
+```{r}
+# finaldata_pls <- plsr(LTR.rating.categories~.,data = finaldata9815)
+finaldata_pls <- plsda(x = finaldata,y = finaldata9815$LTR.rating.categories)
+
+
+```
+
+### scores   
+
+```{r}
+finaldata_pls_scores <- finaldata_pls$scores %>%
+  unclass() %>%
+  as.data.frame() %>%
+  cbind(finaldata9815$LTR.rating.categories) %>%
+  `names<-`(c("x","y","rating"))
+
+
+hchart(finaldata_pls_scores,"scatter", hcaes(x=x,y=y,group = rating)) %>%
+  hc_title(text ="finaldata_pls_scores")
+```
+
+
+### Yscores   
+
+```{r}
+finaldata_pls_Yscores <- finaldata_pls$Yscores %>%
+  unclass() %>%
+  as.data.frame() %>%
+  cbind(finaldata9815$LTR.rating.categories) %>%
+  `names<-`(c("x","y","rating"))
+
+
+hchart(finaldata_pls_Yscores,"scatter", hcaes(x=x,y=y,group = rating)) %>%
+  hc_title(text ="finaldata_pls_Yscores")
+```
+
+## UMAP   
+
+```{r}
+finaldata_umap <- finaldata  %>% 
+  umap() %>% 
+  as.data.frame() %>% 
+  cbind(finaldata9815$LTR.rating.categories) %>%
+  `names<-`(c("x","y","rating"))
+
+
+
+hchart(finaldata_umap,"scatter", hcaes(x=x,y=y,group = rating)) %>%
+  hc_title(text ="finaldata_umap") 
+```
+
+
+## 有Y的UMAP   
+
+```{r}
+finaldata_umap <- finaldata  %>% 
+  umap(y = finaldata9815$LTR.rating.categories) %>% 
+  as.data.frame() %>% 
+  cbind(finaldata9815$LTR.rating.categories) %>%
+  `names<-`(c("x","y","rating"))
+
+
+
+hchart(finaldata_umap,"scatter", hcaes(x=x,y=y,group = rating)) %>%
+  hc_title(text ="finaldata_umap") 
+```
+
+
+
+
+
+# data_in    
+
+
+
+## Partial least squares  
+
+
+```{r}
+data_in_pls <- plsr(LGD~.-Instrument.ID-Date.of.Obligor.Default,data = data_in)
+```
+
+### scores   
+
+```{r}
+data_in_pls_scores <- data_in_pls$scores %>%
+  unclass() %>%
+  as.data.frame() %>%
+  cbind(LGD = data_in$LGD) %>%
+  `names<-`(c(paste0("x",1:12),"LGD"))
+
+
+hchart(data_in_pls_scores,"scatter", hcaes(x=x1,y=x2,value = LGD),colorKey = "LGD") %>%
+  hc_colorAxis(min = 0, max = 1) %>%
+  hc_title(text ="data_in_pls_scores")  %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return 'LGD: '+this.point.value;}"))
+```
+
+
+### Yscores   
+
+```{r}
+data_in_pls_Yscores <- data_in_pls$Yscores %>%
+  unclass() %>%
+  as.data.frame() %>%
+  cbind(LGD = data_in$LGD) %>%
+  `names<-`(c(paste0("x",1:12),"LGD"))
+
+
+hchart(data_in_pls_Yscores,"scatter", hcaes(x=x1,y=x2,value = LGD),colorKey = "LGD") %>%
+  hc_colorAxis(min = 0, max = 1) %>%
+  hc_title(text ="data_in_pls_Yscores")  %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return 'LGD: '+this.point.value;}"))
+```
+
+## UMAP  
+
+```{r}
+data_in_umap <- data_in[,4:15]  %>% 
+  umap() %>% 
+  as.data.frame() %>% 
+  cbind(data_in$LGD) %>%
+  `names<-`(c("x","y","LGD"))
+
+hchart(data_in_umap,"scatter", hcaes(x=x,y=y,value = LGD),colorKey = "LGD") %>%
+  hc_colorAxis(min = 0, max = 1) %>%
+  hc_title(text ="data_in_umap")  %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return 'LGD: '+this.point.value;}"))
+```
+
+
+
+## 有Y的UMAP  
+
+
+
+
+
+```{r}
+data_in_umap <- data_in[,4:15]  %>% 
+  umap(y = data_in$LGD) %>% 
+  as.data.frame() %>% 
+  cbind(data_in$LGD) %>%
+  `names<-`(c("x","y","LGD"))
+
+hchart(data_in_umap,"scatter", hcaes(x=x,y=y,value = LGD),colorKey = "LGD") %>%
+  hc_colorAxis(min = 0, max = 1) %>%
+  hc_title(text ="data_in_umap")  %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return 'LGD: '+this.point.value;}"))
+```
+
+
+
+               
+
+
+               
+               
+               
+               
+               
+               
+               
+               
+               
+               
+               
+               
+               
+               
+               
+               
+               
+               
+               

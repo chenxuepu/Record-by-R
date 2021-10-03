@@ -1,0 +1,135 @@
+---
+title: "R-package"
+author: '610811101'
+date: "2020/8/29"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+因為Task_Views中package有重複的問題，所以以該package第一次出現定為
+它所在的分類。
+
+
+base的文字都很短，不太能做。
+
+```{r include=FALSE}
+library(tidyverse)
+library(jiebaR)
+library(highcharter)
+library(tidytext)
+library(quanteda)
+library("Rtsne")
+library(magrittr)
+library(wordcloud)
+library(word2vec)
+library(proxy)
+library(uwot)
+library(udpipe)
+data_package <- tools::CRAN_package_db() %>%
+  select(Package,Title,Description,Imports,Author)
+# data_package <- data_package %>%
+#   select(Package,Title,Description,Description)
+
+# is_RStudio <- ifelse(grepl("RStudio",data_package$Author),"RStudio","others")
+Rstudio_pg <- c("tidyverse","ggplot2","dplyr","tidyr","purrr","stringr","shiny","rmarkdown","flexdashboard","tensorflow","tidymodels","sparklyr","plumber","reticulate")
+
+
+# is_RStudio <- ifelse(grepl("RStudio",package_Imports$Author),ifelse(package_Imports$Package %in% Rstudio_pg,"best","RStudio"),"others")
+load("G:\\我的雲端硬碟\\meeting\\Task_Views.RData")
+
+repnames <- table(Task_Views$Package) %>% .[.>1]
+
+
+for(i in 1:length(repnames)){
+  Task_Views$Package[Task_Views$Package==names(repnames)[i]] <- c(names(repnames)[i],paste0(names(repnames)[i],"_",2:repnames[i]))
+}
+
+data_package <- left_join(data_package,Task_Views,by = "Package")
+# data_package <- data_package[!is.na(data_package$Topics),]
+data_package$Topics[is.na(data_package$Topics)] <- "others"
+
+
+files <- paste0(R.home(),"/library")
+packeage_base <- dir(files)
+data_base <- data.frame("Package" = packeage_base,"Title" = NA,"Description" = NA,"Imports" = NA,"Author" = NA,"Topics" = "base" )
+for(i in 1:length(packeage_base)){
+  pg_file <- paste0(files,"/",packeage_base[i],"/DESCRIPTION")
+  x <- readLines(pg_file)
+  x <- sapply(x, function(x) strsplit(x, ":")[[1]][1:2], USE.NAMES=FALSE) %>% t()
+  data_base$Title[i] <- x[x[,1]=="Title",2]
+  data_base$Description[i] <- x[x[,1]=="Description",2]
+  data_base$Author[i] <- x[x[,1]=="Author",2]
+  rm(x)
+}
+
+repnames <- table(data_package$Package) %>% .[.>1]
+
+
+for(i in 1:length(repnames)){
+  data_package$Package[data_package$Package==names(repnames)[i]] <- paste0(names(repnames)[i],"_",1:repnames[i])
+}
+
+data_package <- rbind(data_package,data_base)
+rm(list = ls()[!ls() %in% c("data_package","Rstudio_pg")])
+```
+
+
+
+```{r}
+library(textreuse)
+Description <- data_package$Description
+names(Description) <- data_package$Package
+
+minhash <- minhash_generator(200, seed = 235)
+data_Description <- TextReuseCorpus(text = Description,skip_short = TRUE,                          minhash_func = minhash)
+Description_lsh <- lsh(data_Description,50)
+candidates <- lsh_candidates(Description_lsh)
+lsh_compare(candidates, data_Description, jaccard_similarity)
+lsh_query(Description_lsh,"adapt4pv")
+lsh_query(Description_lsh,"stats")
+lsh_query(Description_lsh,"graphics")
+lsh_query(Description_lsh,"MASS")
+lsh_query(Description_lsh,"ggplot2")
+lsh_query(Description_lsh,"highcharter")
+lsh_query(Description_lsh,"dplyr")
+lsh_query(Description_lsh,"tidyr")
+
+```
+
+
+# 刪除不在Task_Views中的資料
+
+
+
+```{r}
+data_package <- data_package[data_package$Topics!="others",]
+```
+
+
+
+```{r}
+library(textreuse)
+Description <- data_package$Description
+names(Description) <- data_package$Package
+
+minhash <- minhash_generator(200, seed = 235)
+data_Description <- TextReuseCorpus(text = Description,skip_short = TRUE,                          minhash_func = minhash)
+Description_lsh <- lsh(data_Description,50)
+candidates <- lsh_candidates(Description_lsh)
+lsh_compare(candidates, data_Description, jaccard_similarity)
+lsh_query(Description_lsh,"adapt4pv")
+lsh_query(Description_lsh,"stats")
+lsh_query(Description_lsh,"graphics")
+lsh_query(Description_lsh,"MASS")
+lsh_query(Description_lsh,"ggplot2")
+lsh_query(Description_lsh,"highcharter")
+lsh_query(Description_lsh,"dplyr")
+lsh_query(Description_lsh,"tidyr")
+
+```

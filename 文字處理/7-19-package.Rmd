@@ -1,0 +1,73 @@
+---
+title: "R-package"
+author: '610811101'
+date: "2020/7/19"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+
+```{r include=FALSE}
+library(tidyverse)
+library(jiebaR)
+library(highcharter)
+library(tidytext)
+data_package <- tools::CRAN_package_db() %>%
+  select(Package,Title,Description,Imports)
+# data_package <- data_package %>%
+#   select(Package,Title,Description,Imports)
+```
+
+
+發現除了標題和內文以外，有一個變數是Imports，是該package需要載入的package。
+
+
+# tf_idf值的分布  
+
+目前考慮將tf_idf值過低的刪除後，再去做MDS。   
+
+
+ 
+
+```{r}
+data_package %>%   
+  unnest_tokens(word,Imports) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(Package,word,sort = T) %>%
+  bind_tf_idf(word,Package,n) %>% 
+  ggplot(mapping = aes(x = tf_idf))+
+    geom_histogram()
+```
+
+
+```{r}
+data_package %>%   
+  unnest_tokens(word,Description) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  anti_join(stop_words,by = "word") %>%
+  count(Package,word,sort = T) %>%
+  bind_tf_idf(word,Package,n) %>% 
+  ggplot(mapping = aes(x = tf_idf))+
+    geom_histogram()
+```
+
+
+
+```{r}
+data_package %>% 
+  mutate(text= paste(Package,Title)) %>%   
+  unnest_tokens(word,text) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  anti_join(stop_words,by = "word") %>%
+  count(Package,word,sort = T) %>%
+  bind_tf_idf(word,Package,n) %>% 
+  ggplot(mapping = aes(x = tf_idf))+
+    geom_histogram()
+```
+

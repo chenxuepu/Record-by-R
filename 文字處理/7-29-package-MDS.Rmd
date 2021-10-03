@@ -1,0 +1,494 @@
+---
+title: "R-package-MDS"
+author: '610811101'
+date: "2020/7/31"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+
+
+```{r include=FALSE}
+library(proxy)
+library(tidyverse)
+library(jiebaR)
+library(highcharter)
+library(tidytext)
+library(quanteda)
+library("Rtsne")
+library(magrittr)
+
+data_package <- tools::CRAN_package_db() %>%
+  select(Package,Title,Description,Imports,Author)
+# data_package <- data_package %>%
+#   select(Package,Title,Description,Imports)
+
+# is_RStudio <- ifelse(grepl("RStudio",data_package$Author),"RStudio","others")
+Rstudio_pg <- c("tidyverse","ggplot2","dplyr","tidyr","purrr","stringr","shiny","rmarkdown","flexdashboard","tensorflow","tidymodels","sparklyr","plumber","reticulate")
+
+
+# is_RStudio <- ifelse(grepl("RStudio",package_Imports$Author),ifelse(package_Imports$Package %in% Rstudio_pg,"best","RStudio"),"others")
+load("G:\\我的雲端硬碟\\meeting\\Task_Views.RData")
+data_package <- left_join(data_package,Task_Views,by = "Package")
+data_package$Topics[is.na(data_package$Topics)] <- "others"
+```
+
+
+# Imports MDS   
+
+
+```{r}
+
+#  wordspace::dist.matrix
+#  quanteda::textstat_dist
+# package_Imports_count <- data_package %>%   
+#   unnest_tokens(word,Imports) %>%
+#   filter(grepl("[A-Za-z]+",word)) %>%
+#   count(Package,word)
+
+# x <- left_join(package_Imports_count,data_package) %>%
+#   bind_tf_idf(word,Package,n) %>% 
+#   filter(tf_idf>1)
+
+package_Imports <- data_package %>%   
+  unnest_tokens(word,Imports) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(Package,word) %>%
+  bind_tf_idf(word,Package,n) %>% 
+  # filter(tf_idf>1) %>%
+  cast_dfm(document = Package,term = word,value = n) %>%
+  textstat_dist() %>%
+  cmdscale() %>%
+  as.data.frame() %>%
+  mutate(Package = row.names(.))
+  
+
+names(package_Imports) <- c("x","y","Package")
+package_Imports <- left_join(package_Imports,data_package,by = "Package")
+
+
+# package_Author <- data_package$Author[data_package$Package %in% row.names(package_Imports)]
+# 
+is_RStudio <- ifelse(grepl("RStudio",package_Imports$Author),ifelse(package_Imports$Package %in% Rstudio_pg,"best","RStudio"),"others")
+
+package_Imports %>% nrow() %>% print()
+
+hchart(package_Imports,"scatter", hcaes(x=x,y=y,group = is_RStudio,label = Package ,value = Description)) %>%
+  hc_title(text ="Imports") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+
+
+hchart(package_Imports,"scatter", hcaes(x=x,y=y,group = Topics,label = Package ,value = Description)) %>%
+  hc_title(text ="Imports") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+
+# hchart(package_Imports,"scatter", hcaes(x=x,y=y,label = row.names(package_Imports))) %>%
+#   hc_title(text ="Imports") %>%
+#   hc_tooltip(formatter = JS("function () {
+#                                    return '<b>' + this.point.label + '</b>';}"))
+
+rm(package_Imports)
+rm(is_RStudio)
+```
+
+
+# Description MDS   
+
+
+```{r}
+package_Description <- data_package %>%   
+  unnest_tokens(word,Description) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(Package,word,sort = T) %>%
+  bind_tf_idf(word,Package,n) %>% 
+  # filter(tf_idf>1) %>%
+  cast_dfm(document = Package,term = word,value = n) %>%
+  textstat_dist() %>%
+  cmdscale() %>%
+  as.data.frame() %>%
+  mutate(Package = row.names(.))
+  
+
+names(package_Description) <- c("x","y","Package")
+package_Description <- left_join(package_Description,data_package,by = "Package")
+
+is_RStudio <- ifelse(grepl("RStudio",package_Description$Author),ifelse(package_Description$Package %in% Rstudio_pg,"best","RStudio"),"others")
+
+package_Description %>% nrow() %>% print()
+
+hchart(package_Description,"scatter", hcaes(x=x,y=y,group = is_RStudio,label = Package ,value = Description)) %>%
+  hc_title(text ="Description") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+
+
+
+hchart(package_Description,"scatter", hcaes(x=x,y=y,group = Topics,label = Package ,value = Description)) %>%
+  hc_title(text ="Description") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+# hchart(package_Description,"scatter", hcaes(x=x,y=y,group = is_RStudio,label = data_package$Package ,value = data_package$Description)) %>%
+#   hc_title(text ="Description") %>%
+#   hc_tooltip(formatter = JS("function () {
+#                                    return '<b>' + this.point.label + '</b><br/>'+'num: '+this.point.value;}"))
+# hchart(package_Description,"scatter", hcaes(x=x,y=y,label = row.names(package_Description))) %>%
+#   hc_title(text ="Description") %>%
+#   hc_tooltip(formatter = JS("function () {
+#                                    return '<b>' + this.point.label + '</b>';}"))
+
+rm(package_Description)
+rm(is_RStudio)
+```
+
+
+# Title MDS   
+
+
+```{r}
+package_Title <- data_package %>% 
+  mutate(text= paste(Package,Title)) %>%   
+  unnest_tokens(word,text) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(Package,word,sort = T) %>%
+  bind_tf_idf(word,Package,n) %>% 
+  # filter(tf_idf>1) %>%
+  cast_dfm(document = Package,term = word,value = n) %>%
+  textstat_dist() %>%
+  cmdscale() %>%
+  as.data.frame() %>%
+  mutate(Package = row.names(.))
+  
+
+names(package_Title) <- c("x","y","Package")
+package_Title <- left_join(package_Title,data_package,by = "Package")
+
+is_RStudio <- ifelse(grepl("RStudio",package_Title$Author),ifelse(package_Title$Package %in% Rstudio_pg,"best","RStudio"),"others")
+
+package_Title %>% nrow() %>% print()
+
+hchart(package_Title,"scatter", hcaes(x=x,y=y,group = is_RStudio,label = Package ,value = Description)) %>%
+  hc_title(text ="Title") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+
+
+
+hchart(package_Title,"scatter", hcaes(x=x,y=y,group = Topics,label = Package ,value = Description)) %>%
+  hc_title(text ="Title") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+
+# names(package_Title) <- c("x","y")
+
+
+# hchart(package_Title,"scatter", hcaes(x=x,y=y,group = is_RStudio,label = data_package$Package ,value = data_package$Description)) %>%
+#   hc_title(text ="Title") %>%
+#   hc_tooltip(formatter = JS("function () {
+#                                    return '<b>' + this.point.label + '</b><br/>'+'num: '+this.point.value;}"))
+# hchart(package_Title,"scatter", hcaes(x=x,y=y,label = row.names(package_Title))) %>%
+#   hc_title(text ="Title") %>%
+#   hc_tooltip(formatter = JS("function () {
+#                                    return '<b>' + this.point.label + '</b>';}"))
+
+
+rm(package_Title)
+rm(is_RStudio)
+```
+
+# all MDS   
+
+```{r}
+package_all <- data_package %>% 
+  mutate(text= paste(Package,Title,Description)) %>%   
+  unnest_tokens(word,text) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(Package,word,sort = T) %>%
+  bind_tf_idf(word,Package,n) %>% 
+  # filter(tf_idf>1) %>%
+  cast_dfm(document = Package,term = word,value = n) %>%
+  textstat_dist() %>%
+  cmdscale() %>%
+  as.data.frame() %>%
+  mutate(Package = row.names(.))
+  
+
+names(package_all) <- c("x","y","Package")
+package_all <- left_join(package_all,data_package,by = "Package")
+
+is_RStudio <- ifelse(grepl("RStudio",package_all$Author),ifelse(package_all$Package %in% Rstudio_pg,"best","RStudio"),"others")
+
+package_all %>% nrow() %>% print()
+
+hchart(package_all,"scatter", hcaes(x=x,y=y,group = is_RStudio,label = Package ,value = Description)) %>%
+  hc_title(text ="all") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+
+
+
+hchart(package_all,"scatter", hcaes(x=x,y=y,group = Topics,label = Package ,value = Description)) %>%
+  hc_title(text ="all") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+# names(package_Title) <- c("x","y")
+
+
+# hchart(package_Title,"scatter", hcaes(x=x,y=y,group = is_RStudio,label = data_package$Package ,value = data_package$Description)) %>%
+#   hc_title(text ="Title") %>%
+#   hc_tooltip(formatter = JS("function () {
+#                                    return '<b>' + this.point.label + '</b><br/>'+'num: '+this.point.value;}"))
+# hchart(package_Title,"scatter", hcaes(x=x,y=y,label = row.names(package_Title))) %>%
+#   hc_title(text ="Title") %>%
+#   hc_tooltip(formatter = JS("function () {
+#                                    return '<b>' + this.point.label + '</b>';}"))
+
+rm(package_all)
+rm(is_RStudio)
+```
+
+
+
+
+# Imports cosine MDS   
+
+
+
+
+```{r}
+
+#  wordspace::dist.matrix
+#  quanteda::textstat_dist
+# package_Imports_count <- data_package %>%   
+#   unnest_tokens(word,Imports) %>%
+#   filter(grepl("[A-Za-z]+",word)) %>%
+#   count(Package,word)
+
+# x <- left_join(package_Imports_count,data_package) %>%
+#   bind_tf_idf(word,Package,n) %>% 
+#   filter(tf_idf>1)
+
+package_Imports <- data_package %>%   
+  unnest_tokens(word,Imports) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(Package,word) %>%
+  bind_tf_idf(word,Package,n) %>% 
+  # filter(tf_idf>1) %>%
+  cast_dfm(document = Package,term = word,value = n) %>%
+  textstat_simil(method = "cosine") %>%
+  pr_simil2dist() %>%
+  cmdscale() %>%
+  as.data.frame() %>%
+  mutate(Package = row.names(.))
+  
+
+names(package_Imports) <- c("x","y","Package")
+package_Imports <- left_join(package_Imports,data_package,by = "Package")
+
+
+# package_Author <- data_package$Author[data_package$Package %in% row.names(package_Imports)]
+# 
+is_RStudio <- ifelse(grepl("RStudio",package_Imports$Author),ifelse(package_Imports$Package %in% Rstudio_pg,"best","RStudio"),"others")
+
+package_Imports %>% nrow() %>% print()
+
+hchart(package_Imports,"scatter", hcaes(x=x,y=y,group = is_RStudio,label = Package ,value = Description)) %>%
+  hc_title(text ="Imports") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+
+
+hchart(package_Imports,"scatter", hcaes(x=x,y=y,group = Topics,label = Package ,value = Description)) %>%
+  hc_title(text ="Imports") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+
+# hchart(package_Imports,"scatter", hcaes(x=x,y=y,label = row.names(package_Imports))) %>%
+#   hc_title(text ="Imports") %>%
+#   hc_tooltip(formatter = JS("function () {
+#                                    return '<b>' + this.point.label + '</b>';}"))
+
+rm(package_Imports)
+rm(is_RStudio)
+```
+
+
+# Description cosine MDS   
+
+
+```{r}
+package_Description <- data_package %>%   
+  unnest_tokens(word,Description) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(Package,word,sort = T) %>%
+  bind_tf_idf(word,Package,n) %>% 
+  # filter(tf_idf>1) %>%
+  cast_dfm(document = Package,term = word,value = n) %>%
+  textstat_simil(method = "cosine") %>%
+  pr_simil2dist() %>%
+  cmdscale() %>%
+  as.data.frame() %>%
+  mutate(Package = row.names(.))
+  
+
+names(package_Description) <- c("x","y","Package")
+package_Description <- left_join(package_Description,data_package,by = "Package")
+
+is_RStudio <- ifelse(grepl("RStudio",package_Description$Author),ifelse(package_Description$Package %in% Rstudio_pg,"best","RStudio"),"others")
+
+package_Description %>% nrow() %>% print()
+
+hchart(package_Description,"scatter", hcaes(x=x,y=y,group = is_RStudio,label = Package ,value = Description)) %>%
+  hc_title(text ="Description") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+
+
+
+hchart(package_Description,"scatter", hcaes(x=x,y=y,group = Topics,label = Package ,value = Description)) %>%
+  hc_title(text ="Description") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+# hchart(package_Description,"scatter", hcaes(x=x,y=y,group = is_RStudio,label = data_package$Package ,value = data_package$Description)) %>%
+#   hc_title(text ="Description") %>%
+#   hc_tooltip(formatter = JS("function () {
+#                                    return '<b>' + this.point.label + '</b><br/>'+'num: '+this.point.value;}"))
+# hchart(package_Description,"scatter", hcaes(x=x,y=y,label = row.names(package_Description))) %>%
+#   hc_title(text ="Description") %>%
+#   hc_tooltip(formatter = JS("function () {
+#                                    return '<b>' + this.point.label + '</b>';}"))
+
+rm(package_Description)
+rm(is_RStudio)
+```
+
+
+# Title cosine MDS   
+
+
+```{r}
+package_Title <- data_package %>% 
+  mutate(text= paste(Package,Title)) %>%   
+  unnest_tokens(word,text) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(Package,word,sort = T) %>%
+  bind_tf_idf(word,Package,n) %>% 
+  # filter(tf_idf>1) %>%
+  cast_dfm(document = Package,term = word,value = n) %>%
+  textstat_simil(method = "cosine") %>%
+  pr_simil2dist() %>%
+  cmdscale() %>%
+  as.data.frame() %>%
+  mutate(Package = row.names(.))
+  
+
+names(package_Title) <- c("x","y","Package")
+package_Title <- left_join(package_Title,data_package,by = "Package")
+
+is_RStudio <- ifelse(grepl("RStudio",package_Title$Author),ifelse(package_Title$Package %in% Rstudio_pg,"best","RStudio"),"others")
+
+package_Title %>% nrow() %>% print()
+
+hchart(package_Title,"scatter", hcaes(x=x,y=y,group = is_RStudio,label = Package ,value = Description)) %>%
+  hc_title(text ="Title") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+
+
+
+hchart(package_Title,"scatter", hcaes(x=x,y=y,group = Topics,label = Package ,value = Description)) %>%
+  hc_title(text ="Title") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+
+# names(package_Title) <- c("x","y")
+
+
+# hchart(package_Title,"scatter", hcaes(x=x,y=y,group = is_RStudio,label = data_package$Package ,value = data_package$Description)) %>%
+#   hc_title(text ="Title") %>%
+#   hc_tooltip(formatter = JS("function () {
+#                                    return '<b>' + this.point.label + '</b><br/>'+'num: '+this.point.value;}"))
+# hchart(package_Title,"scatter", hcaes(x=x,y=y,label = row.names(package_Title))) %>%
+#   hc_title(text ="Title") %>%
+#   hc_tooltip(formatter = JS("function () {
+#                                    return '<b>' + this.point.label + '</b>';}"))
+
+
+rm(package_Title)
+rm(is_RStudio)
+```
+
+# all cosine MDS   
+
+```{r}
+package_all <- data_package %>% 
+  mutate(text= paste(Package,Title,Description)) %>%   
+  unnest_tokens(word,text) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(Package,word,sort = T) %>%
+  bind_tf_idf(word,Package,n) %>% 
+  # filter(tf_idf>1) %>%
+  cast_dfm(document = Package,term = word,value = n) %>%
+  textstat_simil(method = "cosine") %>%
+  pr_simil2dist() %>%
+  cmdscale() %>%
+  as.data.frame() %>%
+  mutate(Package = row.names(.))
+  
+
+names(package_all) <- c("x","y","Package")
+package_all <- left_join(package_all,data_package,by = "Package")
+
+is_RStudio <- ifelse(grepl("RStudio",package_all$Author),ifelse(package_all$Package %in% Rstudio_pg,"best","RStudio"),"others")
+
+package_all %>% nrow() %>% print()
+
+hchart(package_all,"scatter", hcaes(x=x,y=y,group = is_RStudio,label = Package ,value = Description)) %>%
+  hc_title(text ="all") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+
+
+
+hchart(package_all,"scatter", hcaes(x=x,y=y,group = Topics,label = Package ,value = Description)) %>%
+  hc_title(text ="all") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+# names(package_Title) <- c("x","y")
+
+
+# hchart(package_Title,"scatter", hcaes(x=x,y=y,group = is_RStudio,label = data_package$Package ,value = data_package$Description)) %>%
+#   hc_title(text ="Title") %>%
+#   hc_tooltip(formatter = JS("function () {
+#                                    return '<b>' + this.point.label + '</b><br/>'+'num: '+this.point.value;}"))
+# hchart(package_Title,"scatter", hcaes(x=x,y=y,label = row.names(package_Title))) %>%
+#   hc_title(text ="Title") %>%
+#   hc_tooltip(formatter = JS("function () {
+#                                    return '<b>' + this.point.label + '</b>';}"))
+
+rm(package_all)
+rm(is_RStudio)
+```

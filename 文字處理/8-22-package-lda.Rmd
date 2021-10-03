@@ -1,0 +1,122 @@
+---
+title: "R-package-LDA"
+author: '610811101'
+date: "2020/8/22"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+上次忘了說，加入Task_Views的類別會讓package重複，因為有的package不只一類。
+
+
+```{r include=FALSE}
+library(tidyverse)
+library(jiebaR)
+library(highcharter)
+library(tidytext)
+library(quanteda)
+library("Rtsne")
+library(magrittr)
+library(wordcloud)
+library(word2vec)
+library(proxy)
+library(topicmodels)
+data_package <- tools::CRAN_package_db() %>%
+  select(Package,Title,Description,Imports,Author)
+# data_package <- data_package %>%
+#   select(Package,Title,Description,Description)
+
+# is_RStudio <- ifelse(grepl("RStudio",data_package$Author),"RStudio","others")
+Rstudio_pg <- c("tidyverse","ggplot2","dplyr","tidyr","purrr","stringr","shiny","rmarkdown","flexdashboard","tensorflow","tidymodels","sparklyr","plumber","reticulate")
+
+
+# is_RStudio <- ifelse(grepl("RStudio",package_Imports$Author),ifelse(package_Imports$Package %in% Rstudio_pg,"best","RStudio"),"others")
+# load("G:\\我的雲端硬碟\\meeting\\Task_Views.RData")
+# data_package <- left_join(data_package,Task_Views,by = "Package")
+# data_package$Topics[is.na(data_package$Topics)] <- "others"
+
+repnames <- table(data_package$Package) %>% .[.>1]
+
+
+for(i in 1:length(repnames)){
+  data_package$Package[data_package$Package==names(repnames)[i]] <- paste0(names(repnames)[i],"_",1:repnames[i])
+}
+```
+
+
+
+
+
+```{r}
+package_Description <- data_package %>%   
+  unnest_tokens(word,Description) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(Package,word,sort = T) %>%
+  bind_tf_idf(word,Package,n) %>%
+  anti_join(stop_words, by = c("word" = "word")) %>%
+  filter(idf>2.5) %>%
+  cast_dtm(Package,word,n)
+
+
+pg_lda <- LDA(package_Description, k = 2, control = list(seed = 1234))
+pg_lda
+```
+
+
+# 單詞主題概率   
+
+
+```{r}
+
+pg_topics <- tidy(pg_lda, matrix = "beta")
+pg_topics
+
+
+pg_top_terms <- pg_topics %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+
+pg_top_terms %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip() +
+  scale_x_reordered()
+
+
+
+
+beta_spread <- pg_topics %>%
+  mutate(topic = paste0("topic", topic)) %>%
+  spread(topic, beta) %>%
+  filter(topic1 > .001 | topic2 > .001) %>%
+  mutate(log_ratio = log2(topic2 / topic1))
+
+beta_spread %>%
+  top_n(10, abs(log_ratio)) %>% 
+  mutate(term = fct_reorder(term, desc(log_ratio))) %>%
+  ggplot(aes(x = log_ratio,y=term)) +
+  geom_col()
+```
+
+
+# 文檔主題概率   
+
+
+```{r}
+pg_documents <- tidy(pg_lda, matrix = "gamma")
+pg_documents
+
+
+```
+

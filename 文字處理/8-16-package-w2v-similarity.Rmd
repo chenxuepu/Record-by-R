@@ -1,0 +1,77 @@
+---
+title: "R-package-word-nearest"
+author: '610811101'
+date: "2020/8/16"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+```{r include=FALSE}
+library(tidyverse)
+library(jiebaR)
+library(highcharter)
+library(tidytext)
+library(quanteda)
+library("Rtsne")
+library(magrittr)
+library(wordcloud)
+library(word2vec)
+library(proxy)
+library(packagefinder)
+data_package <- tools::CRAN_package_db() %>%
+  select(Package,Title,Description,Imports,Author)
+# data_package <- data_package %>%
+#   select(Package,Title,Description,Description)
+
+# is_RStudio <- ifelse(grepl("RStudio",data_package$Author),"RStudio","others")
+Rstudio_pg <- c("tidyverse","ggplot2","dplyr","tidyr","purrr","stringr","shiny","rmarkdown","flexdashboard","tensorflow","tidymodels","sparklyr","plumber","reticulate")
+
+
+# is_RStudio <- ifelse(grepl("RStudio",package_Imports$Author),ifelse(package_Imports$Package %in% Rstudio_pg,"best","RStudio"),"others")
+load("G:\\我的雲端硬碟\\meeting\\Task_Views.RData")
+data_package <- left_join(data_package,Task_Views,by = "Package")
+data_package$Topics[is.na(data_package$Topics)] <- "others"
+```
+
+
+
+# test   
+
+
+
+```{r}
+wordvec_model <- word2vec(x = c(data_package$Description,data_package$Title))
+
+
+
+
+predict(wordvec_model, "vector", type = "nearest", top_n = 5)
+
+predict(wordvec_model, "package", type = "nearest", top_n = 5)
+
+predict(wordvec_model, "regression", type = "nearest", top_n = 5)
+
+predict(wordvec_model, "plot", type = "nearest", top_n = 5)
+
+
+```
+
+
+
+```{r}
+x <- predict(wordvec_model, "regression", type = "nearest", top_n = 5)
+y <- x[[1]]$term2
+
+findPackage("regression",display = "console")
+for(i in 1:length(y)){
+  findPackage(y[i],display = "console") # %>% show()
+}
+
+```
+

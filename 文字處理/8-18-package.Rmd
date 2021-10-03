@@ -1,0 +1,367 @@
+---
+title: "R-package-w2v-bag-of-word"
+author: '610811101'
+date: "2020/8/18"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+
+上次忘了說，加入Task_Views的類別會讓package重複，因為有的package不只一類。
+
+
+
+```{r include=FALSE}
+library(tidyverse)
+library(jiebaR)
+library(highcharter)
+library(tidytext)
+library(quanteda)
+library("Rtsne")
+library(magrittr)
+library(wordcloud)
+library(word2vec)
+library(proxy)
+data_package <- tools::CRAN_package_db() %>%
+  select(Package,Title,Description,Imports,Author)
+# data_package <- data_package %>%
+#   select(Package,Title,Description,Imports)
+
+# is_RStudio <- ifelse(grepl("RStudio",data_package$Author),"RStudio","others")
+Rstudio_pg <- c("tidyverse","ggplot2","dplyr","tidyr","purrr","stringr","shiny","rmarkdown","flexdashboard","tensorflow","tidymodels","sparklyr","plumber","reticulate")
+
+
+# is_RStudio <- ifelse(grepl("RStudio",package_Imports$Author),ifelse(package_Imports$Package %in% Rstudio_pg,"best","RStudio"),"others")
+
+
+
+# load("G:\\我的雲端硬碟\\meeting\\Task_Views.RData")
+# data_package <- left_join(data_package,Task_Views,by = "Package")
+# data_package$Topics[is.na(data_package$Topics)] <- "others"
+
+
+
+repnames <- table(data_package$Package) %>% .[.>1]
+
+
+for(i in 1:length(repnames)){
+  data_package$Package[data_package$Package==names(repnames)[i]] <- paste0(names(repnames)[i],"_",1:repnames[i])
+}
+```
+
+# use idf to select data   
+
+```{r fig.height=10, fig.width=10}
+print("Description")
+data_package %>%   
+  unnest_tokens(word,Description) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(Package,word) %>%
+  bind_tf_idf(word,Package,n) %>%
+  filter(idf>2.5) %>%
+  select(-n) %>%
+  count(word,sort = T) %$%
+  wordcloud(words = word,freq = n,max.words = 20)
+```
+
+
+```{r}
+wordvec_model_50 <- word2vec(x = data_package$Description,dim = 50)
+
+t <- Sys.time()
+package_Description <- data_package %>%   
+  unnest_tokens(word,Description) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(Package,word,sort = T) %>%
+  bind_tf_idf(word,Package,n) %>%
+  anti_join(stop_words, by = c("word" = "word")) %>%
+  filter(idf>2.5)
+
+Description_word <- package_Description$word %>% 
+  as.vector() %>% 
+  unique()  %>%
+  predict(wordvec_model_50,newdata = . , type = "embedding")
+
+# package_Description_bag <- data.frame(matrix(0,nrow = nrow(data_package),ncol = length(Description_word))) %>%
+#   `colnames<-`(Description_word) %>%
+#   `row.names<-`(data_package$Package)
+
+package_Description_bag <- sapply(1:nrow(data_package),function(x){
+  y <- unnest_tokens(data_package[x,c("Package","Description")],word,Description) %>%
+    filter(grepl("[A-Za-z]+",word)) %>%
+    .$word %>%
+    predict(wordvec_model_50,newdata = . , type = "embedding")
+  sims <- word2vec_similarity(Description_word, y, top_n = 1)
+  vec <- sims$similarity %>% `names<-`(sims$term1)
+  vec[row.names(Description_word)]
+}) %>%  
+  t() %>%
+  `row.names<-`(data_package$Package)
+
+package_Description_bag[is.na(package_Description_bag)] <- 0
+
+print("bag use times")
+Sys.time()-t
+rm(t)
+
+package_Description <- package_Description$word %>% 
+  as.vector() %>% 
+  unique() %>%
+  predict(wordvec_model_50,newdata = . , type = "embedding") %>%
+  as.data.frame() %>%
+  mutate(word = row.names(.)) %>%
+  left_join(x = package_Description,y = ., by = "word")
+
+
+package_Description <- package_Description %>% 
+  group_by(Package) %>% 
+  summarise_at(paste0("V",1:50),mean,na.rm = T) %>%
+  as.data.frame() %>%
+  `row.names<-`(.$Package) %>%
+  .[,-1] 
+
+
+
+package_Description <- package_Description[!is.na(package_Description[,1]),]
+
+```
+
+## MDS  
+
+```{r}
+t <- Sys.time()
+
+package_Description_MDS_Euclidean <- package_Description_bag %>%
+  dist() %>% 
+  cmdscale() %>%
+  as.data.frame() %>%
+  mutate(Package = row.names(.))
+
+names(package_Description_MDS_Euclidean) <- c("x","y","Package")
+package_Description_MDS_Euclidean <- left_join(package_Description_MDS_Euclidean,data_package,by = "Package")
+
+is_RStudio <- ifelse(grepl("RStudio",package_Description_MDS_Euclidean$Author),ifelse(package_Description_MDS_Euclidean$Package %in% Rstudio_pg,"best","RStudio"),"others")
+
+print("MDS use times")
+Sys.time()-t
+rm(t)
+```
+
+```{r}
+t <- Sys.time()
+
+hchart(package_Description_MDS_Euclidean,"scatter", hcaes(x=x,y=y,group = is_RStudio,label = Package ,value = Description)) %>%
+  hc_title(text ="Description") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+
+print("plot use times")
+Sys.time()-t
+rm(t)
+```
+
+
+
+```{r}
+t <- Sys.time()
+
+package_Description_MDS_Euclidean <- package_Description %>%
+  dist() %>% 
+  cmdscale() %>%
+  as.data.frame() %>%
+  mutate(Package = row.names(.))
+
+names(package_Description_MDS_Euclidean) <- c("x","y","Package")
+package_Description_MDS_Euclidean <- left_join(package_Description_MDS_Euclidean,data_package,by = "Package")
+
+is_RStudio <- ifelse(grepl("RStudio",package_Description_MDS_Euclidean$Author),ifelse(package_Description_MDS_Euclidean$Package %in% Rstudio_pg,"best","RStudio"),"others")
+
+print("MDS use times")
+Sys.time()-t
+rm(t)
+```
+
+```{r}
+t <- Sys.time()
+
+hchart(package_Description_MDS_Euclidean,"scatter", hcaes(x=x,y=y,group = is_RStudio,label = Package ,value = Description)) %>%
+  hc_title(text ="Description") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+
+print("plot use times")
+Sys.time()-t
+rm(t)
+```
+
+
+## T-sne  
+
+```{r}
+t <- Sys.time()
+
+package_Description_uni <- package_Description_bag %>%
+    as.matrix() %>%
+    unique()
+
+
+package_Description_tsne <-  package_Description_uni %>%
+  Rtsne() %$%
+  Y %>% 
+  as.data.frame() %>% 
+  mutate(Package = row.names(package_Description_uni))
+
+
+
+
+
+
+names(package_Description_tsne) <- c("x","y","Package")
+package_Description_tsne <- left_join(package_Description_tsne,data_package,by = "Package")
+
+is_RStudio <- ifelse(grepl("RStudio",package_Description_tsne$Author),ifelse(package_Description_tsne$Package %in% Rstudio_pg,"best","RStudio"),"others")
+
+print("T-SNE use times")
+Sys.time()-t
+rm(t)
+```
+
+```{r}
+t <- Sys.time()
+
+hchart(package_Description_tsne,"scatter", hcaes(x=x,y=y,group = is_RStudio,label = Package ,value = Description)) %>%
+  hc_title(text ="Description") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+
+print("plot use times")
+Sys.time()-t
+rm(t)
+```
+
+
+```{r}
+t <- Sys.time()
+
+package_Description_uni <- package_Description %>%
+    as.matrix() %>%
+    unique()
+
+
+package_Description_tsne <-  package_Description_uni %>%
+  Rtsne() %$%
+  Y %>% 
+  as.data.frame() %>% 
+  mutate(Package = row.names(package_Description_uni))
+
+
+
+
+
+
+names(package_Description_tsne) <- c("x","y","Package")
+package_Description_tsne <- left_join(package_Description_tsne,data_package,by = "Package")
+
+is_RStudio <- ifelse(grepl("RStudio",package_Description_tsne$Author),ifelse(package_Description_tsne$Package %in% Rstudio_pg,"best","RStudio"),"others")
+
+print("T-SNE use times")
+Sys.time()-t
+rm(t)
+```
+
+```{r}
+t <- Sys.time()
+
+hchart(package_Description_tsne,"scatter", hcaes(x=x,y=y,group = is_RStudio,label = Package ,value = Description)) %>%
+  hc_title(text ="Description") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+
+print("plot use times")
+Sys.time()-t
+rm(t)
+```
+
+## UMAP  
+
+
+
+```{r}
+t <- Sys.time()
+
+package_Description_umap_model <- umap::umap(package_Description_bag)
+package_Description_umap <- 
+  package_Description_umap_model$layout%>% 
+  as.data.frame() %>% 
+  mutate(Package = row.names(package_Description_bag))
+
+names(package_Description_umap) <- c("x","y","Package")
+package_Description_umap <- left_join(package_Description_umap,data_package,by = "Package")
+
+is_RStudio <- ifelse(grepl("RStudio",package_Description_umap$Author),ifelse(package_Description_umap$Package %in% Rstudio_pg,"best","RStudio"),"others")
+
+print("UMAP use times")
+Sys.time()-t
+rm(t)
+```
+
+```{r}
+t <- Sys.time()
+
+hchart(package_Description_umap,"scatter", hcaes(x=x,y=y,group = is_RStudio,label = Package ,value = Description)) %>%
+  hc_title(text ="Description") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+
+print("plot use times")
+Sys.time()-t
+rm(t)
+```
+
+
+```{r}
+t <- Sys.time()
+
+package_Description_umap_model <- umap::umap(package_Description)
+package_Description_umap <- 
+  package_Description_umap_model$layout%>% 
+  as.data.frame() %>% 
+  mutate(Package = row.names(package_Description))
+
+names(package_Description_umap) <- c("x","y","Package")
+package_Description_umap <- left_join(package_Description_umap,data_package,by = "Package")
+
+is_RStudio <- ifelse(grepl("RStudio",package_Description_umap$Author),ifelse(package_Description_umap$Package %in% Rstudio_pg,"best","RStudio"),"others")
+
+print("UMAP use times")
+Sys.time()-t
+rm(t)
+```
+
+```{r}
+t <- Sys.time()
+
+hchart(package_Description_umap,"scatter", hcaes(x=x,y=y,group = is_RStudio,label = Package ,value = Description)) %>%
+  hc_title(text ="Description") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+
+print("plot use times")
+Sys.time()-t
+rm(t)
+```
+
+
+

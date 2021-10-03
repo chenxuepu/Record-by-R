@@ -1,0 +1,117 @@
+---
+title: "R-package"
+author: '610811101'
+date: "2020/6/22"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+
+```{r include=FALSE}
+library(tidyverse)
+library(jiebaR)
+library(highcharter)
+data_package <- tools::CRAN_package_db()
+```
+
+
+```{r}
+# data_package$Package
+# data_package$Title
+# data_package$Description
+```
+
+
+```{r}
+mixseg_all<-worker(stop_word ="G:/我的雲端硬碟/meeting/stopword.txt")
+mixseg<-worker(stop_word ="G:/我的雲端硬碟/meeting/stopword.txt",bylines = TRUE)
+
+```
+
+標題:前20多的詞以及有多少詞。   
+
+```{r}
+test <- mixseg_all[data_package$Package]
+test %>% table() %>% sort(decreasing = T) %>% .[1:20]
+test %>% unique() %>% length()
+```
+
+標題文:前20多的詞以及有多少詞。   
+
+```{r}
+test <- mixseg_all[data_package$Title]
+test %>% table() %>% sort(decreasing = T) %>% .[1:20]
+test %>% unique() %>% length()
+```
+
+
+內文:前20多的詞以及有多少詞。  
+
+```{r}
+test <- mixseg_all[data_package$Description]
+test %>% table() %>% sort(decreasing = T) %>% .[1:20]
+test %>% unique() %>% length()
+```
+
+
+考慮將標題和標題文合併成一個，標題切不出甚麼東西。  
+
+
+
+```{r}
+# text <- mixseg_all[paste(data_package$Package,data_package$Title)] %>%
+#   unique()
+
+text <- mixseg_all[paste(data_package$Package,data_package$Title)] %>%
+  table() %>% which(x=.>1) %>% row.names()
+x <- mixseg[paste(data_package$Package,data_package$Title)]
+
+text_mat <- sapply(x, function(x){text %in% x})
+rownames(text_mat) <- text
+mds <- text_mat %>% 
+  dist() %>%
+  cmdscale() %>%
+  data.frame()
+  
+names(mds) <- c("x","y")
+hchart(mds, "scatter", hcaes(x=x,y=y,label=text)) %>%
+          hc_title(text ="MDS") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b>';}"))
+```
+
+
+```{r}
+text_mat_2 <- sapply(x, function(x){
+  y <- (text %in% x) %>% as.numeric()
+  names(y) <- text
+  big <- which(table(x)>1) %>% names()
+  if(length(big)>=1){
+    for(i in big) y[i] <- table(x)[i]
+  }
+  y
+})
+rownames(text_mat_2) <- text
+mds <- text_mat_2 %>% 
+  dist() %>%
+  cmdscale() %>%
+  data.frame()
+
+names(mds) <- c("x","y")
+hchart(mds, "scatter", hcaes(x=x,y=y,label=text)) %>%
+          hc_title(text ="MDS") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b>';}"))
+```
+
+```{r}
+hchart(x)
+
+```
+
