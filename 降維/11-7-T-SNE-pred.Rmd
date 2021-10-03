@@ -1,0 +1,292 @@
+---
+title: "T-SNE-predict"
+author: '610811101'
+date: "2020/11/6"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+
+```{r include=FALSE}
+library(highcharter)
+library(tidyverse)
+library(tidytext)
+library(Rtsne)
+library(magrittr)
+```
+
+
+
+
+```{r}
+finaldata9815 <- read.csv("G:/我的雲端硬碟/meeting/finaldata9815.csv")
+
+colname <- c("IC","OM","TDL","DP","MBA","RDA","REA","CEA","CBA","TA","beta","sigma","size","S.P.500.return")
+finaldata9815 <- finaldata9815[,c(colname,"LTR.rating.categories")]
+finaldata9815 <- finaldata9815[!(is.na(finaldata9815) %>% rowSums()),]
+
+data_out <- read.csv("G:/我的雲端硬碟/meeting/data_out.csv")
+data_in <- read.csv("G:/我的雲端硬碟/meeting/data_in.csv")
+
+mnist <- snedata::download_mnist()
+
+```
+
+
+
+
+
+
+# function  
+
+
+```{r}
+center <- function(x){
+  x_mean <- matrix(colMeans(x),nrow = nrow(x),ncol = ncol(x),byrow = T)
+  x-x_mean
+}
+
+train_tsne <- function(data){
+  ## the function is use by myself , so it has not check anything
+  pca <- prcomp(data)
+  Y_init <- as.matrix(pca$x[,1:2])
+  
+  tsne <- Rtsne(data,check_duplicates = F,Y_init = Y_init)
+  tsne[["Y_init"]] <- Y_init
+  tsne[["pca_coef"]] <- as.matrix(pca$rotation[,1:2])
+  tsne[["center"]] <- pca$center
+  class(tsne) <- "TSNE"
+  tsne
+}
+
+# predict_tsne <- function(TSNE,train,test){
+#   ## the function is use by myself , so it has not check anything 
+#   train_pca <- prcomp(train)
+#   test_mean <- matrix(colMeans(train),nrow = nrow(test),ncol = ncol(train))
+#   train_pca_value <- as.matrix(train_pca$x[,1:2])
+#   test_pca_value <- as.matrix(test-test_mean) %*% as.matrix(train_pca$rotation[,1:2])
+#   test_predict <- matrix(nrow = nrow(test),ncol = 2) %>%
+#     as.data.frame() %>%
+#     `names<-`(c("x","y"))
+#   for(i in 1:nrow(test)){
+#     
+#   }
+# }
+
+predict_tsne <- function(TSNE,test,k = 5){
+  ## the function is use by myself , so it has not check anything 
+  if(class(TSNE)!="TSNE"){
+    stop("class is not TSNE")
+  }
+  test_mean <- matrix(TSNE$center,nrow = nrow(test),ncol = ncol(test),byrow = T)
+  
+  RS <- TSNE$Y-TSNE$Y_init
+  
+  test_pca_value <- as.matrix(test-test_mean) %*% TSNE$pca_coef
+  
+  test_predict <- matrix(nrow = nrow(test),ncol = 2) %>%
+    as.data.frame() %>%
+    `names<-`(c("x","y"))
+  
+  for(i in 1:nrow(test)){
+    test_dist_order <- (TSNE$Y_init-matrix(test_pca_value[i,],ncol = 2,nrow = nrow(TSNE$Y_init),byrow = T))^2 %>% rowSums() %>% order()
+    index <- test_dist_order[1:k]
+    move <- RS[index,] %>% colMeans()
+    test_predict[i,] <- test_pca_value[i,]+move
+  }
+  test_predict
+}
+```
+
+
+
+
+# iris  
+
+
+```{r}
+set.seed(610811101)
+iris_index <- sample(1:nrow(iris),size = floor(0.8*nrow(iris)))
+iris_train <- iris[iris_index,]
+iris_test <- iris[-iris_index,]
+set.seed(610811101)
+iris_tsne <- train_tsne(iris_train[,1:4])
+iris_pred <- predict_tsne(TSNE = iris_tsne,test = iris_test[,1:4],k = 3) %>%
+  as.data.frame() %>%
+  cbind(iris_test$Species) %>%
+  `names<-`(c("x","y","Species"))
+
+
+```
+
+
+```{r}
+iris_tsne %$%
+  Y %>%
+  as.data.frame() %>%
+  cbind(iris_train$Species) %>%
+  `names<-`(c("x","y","Species")) %>%
+  hchart("scatter", hcaes(x=x,y=y,group = Species)) %>%
+  hc_title(text ="iris_train") 
+  
+hchart(iris_pred,"scatter", hcaes(x=x,y=y,group = Species)) %>%
+  hc_title(text ="iris_pred") 
+
+iris_tsne %$%
+  Y %>%
+  as.data.frame() %>%
+  cbind(iris_train$Species) %>%
+  `names<-`(c("x","y","Species")) %>%
+  rbind(iris_pred) %>%
+  hchart("scatter", hcaes(x=x,y=y,group = Species)) %>%
+  hc_title(text ="iris_all") 
+
+
+```
+
+
+# finaldata9815  
+
+
+
+
+
+```{r}
+set.seed(610811101)
+finaldata_index <- sample(1:nrow(finaldata9815),size = floor(0.8*nrow(finaldata9815)))
+finaldata_train <- finaldata9815[finaldata_index,]
+finaldata_test <- finaldata9815[-finaldata_index,]
+set.seed(610811101)
+finaldata_tsne <- train_tsne(finaldata_train[,1:14])
+finaldata_pred <- predict_tsne(TSNE = finaldata_tsne,test = finaldata_test[,1:14],k = 3) %>%
+  as.data.frame() %>%
+  cbind(finaldata_test$LTR.rating.categories) %>%
+  `names<-`(c("x","y","LTR"))
+
+
+```
+
+
+```{r}
+finaldata_tsne %$%
+  Y %>%
+  as.data.frame() %>%
+  cbind(finaldata_train$LTR.rating.categories) %>%
+  `names<-`(c("x","y","LTR")) %>%
+  hchart("scatter", hcaes(x=x,y=y,group = LTR)) %>%
+  hc_title(text ="finaldata_train") 
+  
+hchart(finaldata_pred,"scatter", hcaes(x=x,y=y,group = LTR)) %>%
+  hc_title(text ="finaldata_pred") 
+
+finaldata_tsne %$%
+  Y %>%
+  as.data.frame() %>%
+  cbind(finaldata_train$LTR.rating.categories) %>%
+  `names<-`(c("x","y","LTR")) %>%
+  rbind(finaldata_pred) %>%
+  hchart("scatter", hcaes(x=x,y=y,group = LTR)) %>%
+  hc_title(text ="finaldata_all") 
+
+
+```
+
+
+
+
+# data_in  
+
+
+
+
+```{r}
+
+set.seed(610811101)
+LGD_tsne <- train_tsne(data_in[,4:15])
+LGD_pred <- predict_tsne(TSNE = LGD_tsne,test = data_out[,4:15],k = 3) %>%
+  as.data.frame() %>%
+  cbind(data_out$LGD) %>%
+  `names<-`(c("x","y","LGD"))
+
+
+```
+
+
+```{r}
+LGD_tsne %$%
+  Y %>%
+  as.data.frame() %>%
+  cbind(data_in$LGD) %>%
+  `names<-`(c("x","y","LGD")) %>%
+  hchart("scatter", hcaes(x=x,y=y,color = LGD)) %>%
+  hc_title(text ="LGD_train") 
+  
+hchart(LGD_pred,"scatter", hcaes(x=x,y=y,color = LGD)) %>%
+  hc_title(text ="LGD_pred") 
+
+LGD_tsne %$%
+  Y %>%
+  as.data.frame() %>%
+  cbind(data_in$LGD) %>%
+  `names<-`(c("x","y","LGD")) %>%
+  rbind(LGD_pred) %>%
+  hchart("scatter", hcaes(x=x,y=y,color = LGD)) %>%
+  hc_title(text ="LGD_all") 
+
+
+```
+
+
+
+# mnist   
+
+
+```{r}
+set.seed(610811101)
+mnist_index <- sample(1:nrow(mnist),size = floor(0.8*nrow(mnist)))
+mnist_train <- mnist[mnist_index,]
+mnist_test <- mnist[-mnist_index,]
+set.seed(610811101)
+mnist_tsne <- train_tsne(mnist_train[,1:784])
+mnist_pred <- predict_tsne(TSNE = mnist_tsne,test = mnist_test[,1:784])%>%
+  as.data.frame() %>%
+  cbind(mnist_test$Label) %>%
+  `names<-`(c("x","y","Label"))
+
+
+```
+
+
+
+```{r}
+
+
+
+mnist_tsne %$%
+  Y %>%
+  as.data.frame() %>%
+  cbind(mnist_train$Label) %>%
+  `names<-`(c("x","y","Label")) %>%
+  hchart("scatter", hcaes(x=x,y=y,group = Label)) %>%
+  hc_title(text ="mnist_train") 
+  
+hchart(mnist_pred,"scatter", hcaes(x=x,y=y,group = Label)) %>%
+  hc_title(text ="mnist_pred") 
+
+mnist_tsne %$%
+  Y %>%
+  as.data.frame() %>%
+  cbind(mnist_train$Label) %>%
+  `names<-`(c("x","y","Label")) %>%
+  rbind(mnist_pred) %>%
+  hchart("scatter", hcaes(x=x,y=y,group = Label)) %>%
+  hc_title(text ="mnist_train") 
+
+```
+

@@ -1,0 +1,190 @@
+---
+title: "time test"
+author: '610811101'
+date: "2021/1/25"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+```{r include=FALSE}
+library(highcharter)
+library(tidyverse)
+library(tidytext)
+library(Rtsne)
+library(wtsne)
+library(magrittr)
+library(xgboost)
+```
+
+```{r}
+
+weight_index <- function(data,pred,seed = NULL,N = NROW(data)*2){
+  t <- Sys.time()
+  lottery <- sapply(1:N, function(x){
+    if(!is.null(seed)){
+      set.seed(seed+x)
+    }
+    sample(1:NROW(data),2)
+  }) %>% t()
+  data_dist <- (data[lottery[,1],]-data[lottery[,2],])^2 %>% rowSums()
+  pred_dist <- (pred[lottery[,1],]-pred[lottery[,2],])^2 %>% rowSums()
+  proportion <- data.frame("data" = data_dist,"data+pred" = data_dist+pred_dist) %>% sqrt()
+  allproportion <- colSums(proportion)
+  allproportion <- allproportion[1]/allproportion[2]
+  
+  return(list("proportion"=proportion,"allproportion"=allproportion,"times"= Sys.time()-t))
+}
+
+weight_index_dist <- function(data,pred){
+  t <- Sys.time()
+  dist_data <- dist(data)
+  dist_pred <- dist(pred)
+  proportion <- sum(dist_data)/sum(sqrt(dist_data^2+dist_pred^2))
+  return(list("proportion"=proportion,"times"= Sys.time()-t))
+}
+```
+
+# iris
+
+```{r}
+index <- sample(1:nrow(iris),50)
+xgb_iris <- xgb.DMatrix(data=as.matrix(iris[index,-5]),label=as.numeric(iris[index,5])-1)
+iris_num_class <- length(levels(iris$Species))
+xgb_fit <- xgboost(data = xgb_iris, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "multi:softprob",
+num_class= iris_num_class,
+verbose = 0
+)
+label <- predict(xgb_fit,as.matrix(iris[-index,-5]),reshape=T) %>%
+  as.data.frame() %>%
+  `colnames<-`(levels(iris$Species))
+```
+
+## dist
+
+```{r}
+dist_index <- weight_index_dist(iris[-index,1:4],label)
+dist_index$proportion
+dist_index$times
+```
+
+## N = 10
+
+```{r}
+weight_index_iris <- weight_index(iris[-index,1:4],label,N = 10)
+
+weight_index_iris$allproportion
+weight_index_iris$times
+```
+
+## N = 50
+
+```{r}
+weight_index_iris <- weight_index(iris[-index,1:4],label,N = 50)
+
+weight_index_iris$allproportion
+weight_index_iris$times
+```
+
+## N = 100
+
+```{r}
+weight_index_iris <- weight_index(iris[-index,1:4],label,N = 100)
+
+weight_index_iris$allproportion
+weight_index_iris$times
+```
+
+## N = 200
+
+```{r}
+weight_index_iris <- weight_index(iris[-index,1:4],label,N = 200)
+
+weight_index_iris$allproportion
+weight_index_iris$times
+```
+
+
+# mnist 
+
+```{r}
+mnist <- snedata::download_mnist()
+
+```
+
+
+```{r}
+index <- sample(1:nrow(mnist),65000)
+xgb_mnist <- xgb.DMatrix(data=as.matrix(mnist[index,1:784]),label=as.numeric(mnist[index,785])-1)
+mnist_num_class <- length(levels(mnist$Label))
+xgb_fit <- xgboost(data = xgb_mnist, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "multi:softprob",
+num_class= mnist_num_class,
+verbose = 0
+)
+label <- predict(xgb_fit,as.matrix(mnist[-index,1:784]),reshape=T) %>%
+  as.data.frame() %>%
+  `colnames<-`(levels(mnist$Label))
+```
+
+
+
+## dist
+
+```{r}
+dist_index <- weight_index_dist(mnist[-index,1:784],label)
+dist_index$proportion
+dist_index$times
+```
+
+## N = 500
+
+```{r}
+weight_index_mnist <- weight_index(mnist[-index,1:784],label,N = 500)
+
+weight_index_mnist$allproportion
+weight_index_mnist$times
+```
+
+## N = 2500
+
+```{r}
+weight_index_mnist <- weight_index(mnist[-index,1:784],label,N = 2500)
+
+weight_index_mnist$allproportion
+weight_index_mnist$times
+```
+
+## N = 5000
+
+```{r}
+weight_index_mnist <- weight_index(mnist[-index,1:784],label,N = 5000)
+
+weight_index_mnist$allproportion
+weight_index_mnist$times
+```
+
+## N = 10000
+
+```{r}
+weight_index_mnist <- weight_index(mnist[-index,1:784],label,N = 10000)
+
+weight_index_mnist$allproportion
+weight_index_mnist$times
+```

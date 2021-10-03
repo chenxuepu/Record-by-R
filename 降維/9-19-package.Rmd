@@ -1,0 +1,319 @@
+---
+title: "R-package"
+author: '610811101'
+date: "2020/9/19"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+T-sne 只能選擇1-3的維度，不能再生成更高維度。     
+UMAP 雖然時間好像有增加 不過增加的幅度不高。      
+
+
+
+```{r include=FALSE}
+library(highcharter)
+library(tidyverse)
+library(jiebaR)
+library(tidytext)
+library(quanteda)# textstat_dist
+library("Rtsne")
+library(magrittr)
+library(wordcloud)
+library(word2vec)
+library(proxy)
+library(uwot)
+library(udpipe)
+library(umap)
+data_package <- tools::CRAN_package_db() %>%
+  select(Package,Title,Description,Imports,Author)
+# data_package <- data_package %>%
+#   select(Package,Title,Description,Description)
+
+# is_RStudio <- ifelse(grepl("RStudio",data_package$Author),"RStudio","others")
+Rstudio_pg <- c("tidyverse","ggplot2","dplyr","tidyr","purrr","stringr","shiny","rmarkdown","flexdashboard","tensorflow","tidymodels","sparklyr","plumber","reticulate")
+
+repnames <- data_package$Package %>% table() %>% .[.>1]
+
+for(i in 1:length(repnames)){
+  x <- which(data_package$Package==names(repnames)[i])[-1]
+  data_package <- data_package[-x,]
+}
+
+
+
+
+# is_RStudio <- ifelse(grepl("RStudio",package_Imports$Author),ifelse(package_Imports$Package %in% Rstudio_pg,"best","RStudio"),"others")
+# load("G:\\我的雲端硬碟\\meeting\\Task_Views.RData")
+# 
+# repnames <- table(Task_Views$Package) %>% .[.>1]
+# 
+# 
+# for(i in 1:length(repnames)){
+#   Task_Views$Package[Task_Views$Package==names(repnames)[i]] <- c(names(repnames)[i],paste0(names(repnames)[i],"_",2:repnames[i]))
+# }
+# 
+# data_package <- left_join(data_package,Task_Views,by = "Package")
+# # data_package <- data_package[!is.na(data_package$Topics),]
+# data_package$Topics[is.na(data_package$Topics)] <- "others"
+
+
+files <- paste0(R.home(),"/library")
+packeage_base <- dir(files)
+data_base <- data.frame("Package" = packeage_base,"Title" = NA,"Description" = NA,"Imports" = NA,"Author" = NA,"Topics" = "base" )
+for(i in 1:length(packeage_base)){
+  pg_file <- paste0(files,"/",packeage_base[i],"/DESCRIPTION")
+  x <- readLines(pg_file)
+  x <- sapply(x, function(x) strsplit(x, ":")[[1]][1:2], USE.NAMES=FALSE) %>% t()
+  data_base$Title[i] <- x[x[,1]=="Title",2]
+  data_base$Description[i] <- x[x[,1]=="Description",2]
+  data_base$Author[i] <- x[x[,1]=="Author",2]
+  rm(x)
+}
+#####USE Details to change Description
+data_base$Description[data_base$Package=="base"] <- "This package contains the basic functions which let R function as a language: arithmetic, input/output, basic programming support, etc. Its contents are available through inheritance from any environment."
+
+data_base$Description[data_base$Package=="datasets"] <- "This package contains a variety of datasets. For a complete list,"
+
+data_base$Description[data_base$Package=="graphics"] <- "This package contains functions for ‘base’ graphics. Base graphics are traditional S-like graphics, as opposed to the more recent grid graphics."
+
+# data_base$Description[data_base$Package=="grDevices"] <- "This package contains functions which support both base and grid graphics."
+
+data_base$Description[data_base$Package=="methods"] <- "This package provides the “S4” or “S version 4” approach to methods and classes in a functional language.
+
+For basic use of the techniques, start with Introduction and follow the links there to the key functions for programming, notably setClass and setMethod."
+
+data_base$Description[data_base$Package=="stats"] <- "This package contains functions for statistical calculations and random number generation."
+
+data_base$Description[data_base$Package=="utils"] <- "This package contains a collection of utility functions."
+  
+
+
+#####
+
+# repnames <- table(data_package$Package) %>% .[.>1]
+# 
+# 
+# for(i in 1:length(repnames)){
+#   data_package$Package[data_package$Package==names(repnames)[i]] <- paste0(names(repnames)[i],"_",1:repnames[i])
+# }
+
+# data_package <- rbind(data_package,data_base)
+rm(list = ls()[!ls() %in% c("data_package","Rstudio_pg","Task_Views","data_base")])
+```
+
+
+
+
+```{r}
+load("G:\\我的雲端硬碟\\meeting\\Task_Views.RData")
+Task_table <- table(Task_Views$Topics) %>%
+  as.data.frame() %>%
+  arrange(Freq)
+
+Topics <- c(Task_table$Var1[Task_table$Freq>100] %>% as.vector(),"base")
+
+
+Task_Views <- Task_Views[Task_Views$Topics %in% Topics,]
+
+
+repnames <- table(Task_Views$Package) %>% .[.>1]
+
+
+for(i in 1:length(repnames)){
+  Task_Views$Package[Task_Views$Package==names(repnames)[i]] <- c(names(repnames)[i],paste0(names(repnames)[i],"_",2:repnames[i]))
+}
+
+data_package <- left_join(data_package,Task_Views,by = "Package")
+data_package <- data_package[!is.na(data_package$Topics),]
+
+data_package <- rbind(data_package,data_base)
+```
+
+
+
+
+
+
+## T-sne   
+
+
+```{r}
+
+t <- Sys.time()
+
+package_Description_uni <- data_package %>%   
+  unnest_tokens(word,Description) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(Package,word) %>%
+  bind_tf_idf(word,Package,n) %>%
+  anti_join(stop_words, by = c("word" = "word")) %>%
+  filter(idf>3&idf<8) %>%
+  cast_dfm(document = Package,term = word,value = n) %>%
+  as.matrix() %>%
+  unique()
+
+t <- Sys.time()
+
+package_Description <- package_Description_uni %>%
+  Rtsne() %$%
+  Y %>% 
+  as.data.frame() %>% 
+  mutate(Package = row.names(package_Description_uni))
+
+
+
+print("2-dim T-sne use times")
+Sys.time()-t
+rm(t)
+
+```
+
+
+```{r}
+t <- Sys.time()
+
+package_Description <- package_Description_uni %>%
+  Rtsne(dim = 3) %$%
+  Y %>% 
+  as.data.frame() %>% 
+  mutate(Package = row.names(package_Description_uni))
+
+
+
+print("3-dim T-sne use times")
+Sys.time()-t
+rm(t)
+```
+
+```{r eval=FALSE, include=FALSE}
+t <- Sys.time()
+
+package_Description <- package_Description_uni %>%
+  Rtsne(dim = 10) %$%
+  Y %>% 
+  as.data.frame() %>% 
+  mutate(Package = row.names(package_Description_uni))
+
+
+
+print("10-dim T-sne use times")
+Sys.time()-t
+rm(t)
+```
+
+
+```{r eval=FALSE, include=FALSE}
+t <- Sys.time()
+
+package_Description <- package_Description_uni %>%
+  Rtsne(dim = 50) %$%
+  Y %>% 
+  as.data.frame() %>% 
+  mutate(Package = row.names(package_Description_uni))
+
+
+
+print("50-dim T-sne use times")
+Sys.time()-t
+rm(t)
+```
+
+## UMAP
+
+```{r}
+
+
+package_Description <- data_package %>%   
+  unnest_tokens(word,Description) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(Package,word) %>%
+  bind_tf_idf(word,Package,n) %>%
+  anti_join(stop_words, by = c("word" = "word")) %>%
+  filter(idf>3&idf<8) %>%
+  cast_dfm(document = Package,term = word,value = n) %>%
+  as.matrix() 
+
+t <- Sys.time()
+
+package_Description_umap_model <- umap::umap(package_Description)
+package_Description_umap <- 
+  package_Description_umap_model$layout%>% 
+  as.data.frame() %>% 
+  mutate(Package = row.names(package_Description))
+
+
+
+print("2-dim UMAP use times")
+Sys.time()-t
+rm(t)
+```
+
+
+```{r}
+t <- Sys.time()
+custom.settings = umap.defaults
+custom.settings$n_components = 3
+
+
+package_Description_umap_model <- umap::umap(package_Description,config = custom.settings)
+package_Description_umap <- 
+  package_Description_umap_model$layout%>% 
+  as.data.frame() %>% 
+  mutate(Package = row.names(package_Description))
+
+
+
+print("3-dim UMAP use times")
+Sys.time()-t
+rm(t)
+
+```
+
+
+```{r}
+t <- Sys.time()
+custom.settings = umap.defaults
+custom.settings$n_components = 10
+
+
+package_Description_umap_model <- umap::umap(package_Description,config = custom.settings)
+package_Description_umap <- 
+  package_Description_umap_model$layout%>% 
+  as.data.frame() %>% 
+  mutate(Package = row.names(package_Description))
+
+
+
+print("10-dim UMAP use times")
+Sys.time()-t
+rm(t)
+
+```
+
+
+```{r}
+t <- Sys.time()
+custom.settings = umap.defaults
+custom.settings$n_components = 50
+
+
+package_Description_umap_model <- umap::umap(package_Description,config = custom.settings)
+package_Description_umap <- 
+  package_Description_umap_model$layout%>% 
+  as.data.frame() %>% 
+  mutate(Package = row.names(package_Description))
+
+
+
+print("50-dim UMAP use times")
+Sys.time()-t
+rm(t)
+
+```

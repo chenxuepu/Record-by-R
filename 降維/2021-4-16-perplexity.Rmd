@@ -1,0 +1,215 @@
+---
+title: "T-SNE"
+author: '610811101'
+date: "2021/4/15"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+```{r include=FALSE}
+library(caret)
+library(highcharter)
+library(tidyverse)
+library(tidytext)
+library(Rtsne)
+library(stsne)
+library(magrittr)
+library(xgboost)
+library(sneer)
+```
+
+有一個問題，之前忘了說。
+在paper，perplexity計算是用
+$$
+Perp(P_i) = 2^{H(P_i)}
+$$
+但是在程式中，是
+$$
+Perp(P_i) = e^{H(P_i)}
+$$
+
+```{r}
+computeGaussianPerplexity_1 <- function(X,is_distance = FALSE,perplexity,ncols = ncol(X)){
+  if(!is_distance){
+    D <- dist(X) %>% as.matrix()
+    D <- D^2
+  }
+  else{
+    D <- X
+  }
+  diag(D) <- NA
+  apply(D, 1, function(x){
+    found <- FALSE
+    beta <- mean(x,na.rm = TRUE)/ncols
+    min_beta <- -Inf
+    max_beta <- Inf
+    tol <- 1e-5
+    sum_p <- 0
+    iter <- 0
+    first_H <- 
+    while(!found&iter<200){
+      p <- exp(-beta*x)
+      # x[is.na(x)] <- 0
+      p[is.na(p)] <- 0
+      sum_p <- sum(p)
+      H <- sum(beta*x*p,na.rm = TRUE)/sum_p+log(sum_p)
+      Hdiff <- H-log(perplexity)
+      if(iter==0) first_perplexity <- exp(H);
+      if(iter==0) first_beta <- beta
+      if(abs(Hdiff) < tol){
+        found <- TRUE
+      }else{
+        if(Hdiff > 0){
+          min_beta <- beta
+          if(max_beta == Inf){
+            beta <- beta*2
+          }else{
+            beta <- (beta + max_beta)/2
+          }
+        }else{
+          max_beta <- beta
+          if(min_beta == -Inf){
+            beta <- beta/2
+          }else{
+            beta <- (beta + min_beta)/2
+          }
+        }
+      }
+      iter <- iter+1
+    }
+    c(first_beta,beta,iter,first_perplexity,exp(H)) %>% `names<-`(c("init_sigma","final_sigma","iter","init_perplexity","perplexity"))
+  }) %>% t()
+}
+```
+
+
+```{r}
+computeGaussianPerplexity_2 <- function(X,is_distance = FALSE,perplexity){
+  if(!is_distance){
+    D <- dist(X) %>% as.matrix()
+    D <- D^2
+  }
+  else{
+    D <- X
+  }
+  diag(D) <- NA
+  apply(D, 1, function(x){
+    found <- FALSE
+    beta <- 1
+    min_beta <- -Inf
+    max_beta <- Inf
+    tol <- 1e-5
+    sum_p <- 0
+    iter <- 0
+    first_H <- 
+    while(!found&iter<200){
+      p <- exp(-beta*x)
+      # x[is.na(x)] <- 0
+      p[is.na(p)] <- 0
+      sum_p <- sum(p)
+      H <- sum(beta*x*p,na.rm = TRUE)/sum_p+log(sum_p)
+      Hdiff <- H-log(perplexity)
+      if(iter==0) first_perplexity <- exp(H);
+      if(iter==0) first_beta <- beta
+      if(abs(Hdiff) < tol){
+        found <- TRUE
+      }else{
+        if(Hdiff > 0){
+          min_beta <- beta
+          if(max_beta == Inf){
+            beta <- beta*2
+          }else{
+            beta <- (beta + max_beta)/2
+          }
+        }else{
+          max_beta <- beta
+          if(min_beta == -Inf){
+            beta <- beta/2
+          }else{
+            beta <- (beta + min_beta)/2
+          }
+        }
+      }
+      iter <- iter+1
+    }
+    c(first_beta,beta,iter,first_perplexity,exp(H)) %>% `names<-`(c("init_sigma","final_sigma","iter","init_perplexity","perplexity"))
+  }) %>% t()
+}
+```
+
+# iris
+
+## 以估計開始
+
+```{r}
+perp1 <- computeGaussianPerplexity_1(iris[,1:4],perplexity = 30)  %>% as.data.frame()
+
+perp1 %>% summary()
+perp1
+```
+
+
+## 以一開始
+
+```{r}
+perp2 <- computeGaussianPerplexity_2(iris[,1:4],perplexity = 30)  %>% as.data.frame()
+
+perp2 %>% summary()
+perp2
+```
+
+# Crowding
+
+
+```{r}
+Crowding_data <- function(p = 99,n = 100,sd = p/10){
+  point <- function(){
+    x <- diag(p) %>%
+      rbind(rep((2+sqrt(4+4*p))/(2*p),p))*p 
+    # rbind(rep((2-sqrt(4+4*p))/(2*p),p))*p 
+    x <- as.data.frame(x)
+    x
+  }
+  res <- rnorm(n*(p^2+p),sd = sd) %>%
+    matrix(nrow = n,ncol =  (p^2+p))
+  data <- apply(res,1,function(x){
+    res <- matrix(x,nrow = p+1,ncol = p)
+    data <- point()+res
+    data$class <- paste0("point",1:(p+1)) %>% as.factor()
+    data
+  })
+  do.call(rbind,data)
+}
+
+Crowding <- Crowding_data(p = 9,n = 1000)
+
+```
+
+
+## 以估計開始 
+
+```{r}
+perp3 <- computeGaussianPerplexity_1(Crowding[,1:9],perplexity = 30) %>% as.data.frame()
+
+perp3 %>% summary()
+perp3
+
+```
+
+
+## 以一開始 
+
+```{r}
+perp4 <- computeGaussianPerplexity_2(Crowding[,1:9],perplexity = 30) %>% as.data.frame()
+
+perp4 %>% summary()
+perp4
+
+```
+

@@ -1,0 +1,210 @@
+---
+title: "crowding problem"
+author: '610811101'
+date: "2021/4/24"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+```{r include=FALSE}
+library(caret)
+library(highcharter)
+library(tidyverse)
+library(tidytext)
+library(Rtsne)
+library(stsne)
+library(magrittr)
+library(xgboost)
+library(sneer)
+# library(ggplot2)
+```
+
+
+
+```{r}
+weight_by_var <- function(data,pred){
+  data_sd <- apply(data,2,var) %>% mean() %>% sqrt()
+  if(is.vector(pred)){
+    # c(rep(1,ncol(data)),(data_sd/sd(pred))*ncol(data))
+    c(rep(1,ncol(data)),data_sd*ncol(data))
+  }else{
+    # pred_sd <- apply(pred,2,sd)
+    # c(rep(1,ncol(data)),(data_sd/pred_sd)*ncol(data)/ncol(pred))
+    c(rep(1,ncol(data)),rep(data_sd,ncol(pred))*ncol(data)/ncol(pred))
+  }
+}
+```
+
+
+```{r}
+Crowding_data_2  <- function(p = 99,n = 100,sd = p/10){
+  point <- function(){
+    x <- diag(p) %>%
+      rbind(rep(1,p))*p 
+    x <- as.data.frame(x)
+    x
+  }
+  res <- rnorm(n*(p^2),sd = sd) %>%
+    matrix(nrow = n,ncol =  p^2)
+  data <- apply(res,1,function(x){
+    res <- matrix(x,nrow = p,ncol = p)
+    data <- point()+res
+    data$class <- paste0("point",sprintf("%02d", 1:(p+1))) %>% as.factor()
+    data
+  })
+  do.call(rbind,data)
+}
+
+set.seed(123)
+Crowding <- Crowding_data_2(p = 9,n = 1000)
+
+```
+
+
+
+```{r}
+
+set.seed(123)
+index <- createDataPartition(y = Crowding$class,p = 0.7, list = F)
+xgb_Crow <- xgb.DMatrix(data=as.matrix(Crowding[index,-10]),label=as.numeric(Crowding$class[index])-1)
+Crow_num_class <- length(levels(Crowding$class))
+set.seed(123)
+xgb_fit <- xgboost(data = xgb_Crow, 
+                   eta = 0.5,
+                   max_depth = 10, 
+                   nround=25, 
+                   subsample = 0.7,
+                   colsample_bytree = 0.7,
+                   objective = "multi:softprob",
+                   num_class= Crow_num_class,
+                   verbose = 0
+)
+label <- predict(xgb_fit,as.matrix(Crowding[-index,-10]),reshape=T) %>%
+  as.data.frame() %>%
+  `colnames<-`(levels(Crowding$class))
+
+```
+
+
+
+
+
+## SNE 
+
+```{r}
+set.seed(610811101)
+Crowd_sne <- Crowding[-index,-10] %>% 
+  sneer(method = "asne",plot_type = "none") %$% 
+  coords %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crowd_sne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding") 
+
+```
+
+
+
+## r = 1.5
+
+```{r}
+set.seed(610811101)
+Crow_tsne <- Crowding[-index,-10] %>% 
+  stsne(check_duplicates = F,r = 1.5) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crow_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding") 
+```
+
+
+## r = 1.75
+
+```{r}
+set.seed(610811101)
+Crow_tsne <- Crowding[-index,-10] %>% 
+  stsne(check_duplicates = F,r = 1.75) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crow_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding") 
+```
+
+
+## r = 1.9
+
+```{r}
+set.seed(610811101)
+Crow_tsne <- Crowding[-index,-10] %>% 
+  stsne(check_duplicates = F,r = 1.9) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crow_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding") 
+```
+
+## r = 2.1
+
+```{r}
+set.seed(610811101)
+Crow_tsne <- Crowding[-index,-10] %>% 
+  stsne(check_duplicates = F,r = 2.1) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crow_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding") 
+```
+
+
+
+## r = 2.25
+
+```{r}
+set.seed(610811101)
+Crow_tsne <- Crowding[-index,-10] %>% 
+  stsne(check_duplicates = F,r = 2.25) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crow_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding") 
+```
+
+
+
+## r = 2.5
+
+```{r}
+set.seed(610811101)
+Crow_tsne <- Crowding[-index,-10] %>% 
+  stsne(check_duplicates = F,r = 2.5) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crow_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding") 
+```

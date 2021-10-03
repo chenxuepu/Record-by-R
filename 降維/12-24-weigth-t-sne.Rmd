@@ -1,0 +1,537 @@
+---
+title: "weight-T-SNE"
+author: '610811101'
+date: "2020/12/18"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+
+
+```{r include=FALSE}
+library(highcharter)
+library(tidyverse)
+library(tidytext)
+library(Rtsne)
+library(wtsne)
+library(magrittr)
+library(xgboost)
+```
+
+
+
+```{r}
+# data
+mnist <- snedata::download_mnist()
+fashion_mnist <- snedata::download_fashion_mnist()
+```
+
+
+
+
+# iris  
+
+use XGboost to classifier
+
+```{r}
+xgb_iris <- xgb.DMatrix(data=as.matrix(iris[,-5]),label=as.numeric(iris[,5])-1)
+iris_num_class <- length(levels(iris$Species))
+xgb_fit <- xgboost(data = xgb_iris, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "multi:softprob",
+num_class= iris_num_class,
+verbose = 0
+)
+label <- predict(xgb_fit,as.matrix(iris[,-5]),reshape=T) %>%
+  as.data.frame() %>%
+  `colnames<-`(levels(iris$Species))
+max_label <- apply(label,1,max)
+
+good_fit <- (max_label > quantile(max_label,0.75))
+
+cat("have high prob point number is",sum(good_fit), "in ",nrow(iris) ,"\n")
+```
+
+
+## Rtsne  
+
+```{r}
+
+set.seed(610811101)
+iris_tsne <- iris[,-5] %>% 
+  Rtsne(check_duplicates = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(iris[,ncol(iris)]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(iris_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+
+```
+
+## wtsne   
+
+```{r}
+weight <- ifelse(good_fit,2,1)
+set.seed(610811101)
+iris_tsne_2 <- iris[,-5] %>% 
+  wtsne(check_duplicates = F,weights = weight) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(iris[,ncol(iris)]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(iris_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+
+```
+
+
+## add prob  
+
+```{r}
+
+set.seed(610811101)
+iris_tsne_3 <- cbind(iris[,-5],label) %>% 
+  Rtsne(check_duplicates = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(iris[,ncol(iris)]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(iris_tsne_3,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+
+```
+
+
+## add prob dist
+
+```{r}
+y <- model.matrix(~Species-1,data = iris)
+D <- rowSums((y-label)^2)
+set.seed(610811101)
+iris_tsne_4 <- cbind(iris[,-5],D) %>% 
+  Rtsne(check_duplicates = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(iris[,ncol(iris)]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(iris_tsne_4,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+```
+
+
+# mnist 
+
+
+```{r}
+xgb_mnist <- xgb.DMatrix(data=as.matrix(mnist[,-785]),label=as.numeric(mnist[,785])-1)
+mnist_num_class <- length(levels(mnist$Label))
+xgb_fit <- xgboost(data = xgb_mnist, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "multi:softprob",
+num_class= mnist_num_class,
+verbose = 0
+)
+label <- predict(xgb_fit,as.matrix(mnist[,-785]),reshape=T) %>%
+  as.data.frame() %>%
+  `colnames<-`(levels(mnist$Label))
+max_label <- apply(label,1,max)
+
+good_fit <- (max_label > quantile(max_label,0.75))
+
+cat("have high prob point number is",sum(good_fit), "in ",nrow(mnist) ,"\n")
+```
+
+## Rtsne  
+
+```{r}
+set.seed(610811101)
+mnist_tsne <- mnist[,-785] %>% 
+  Rtsne(check_duplicates = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist[,ncol(mnist)]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+## wtsne   
+
+
+```{r}
+weight <- ifelse(good_fit,2,1)
+set.seed(610811101)
+mnist_tsne_2 <- mnist[,-785] %>% 
+  wtsne(check_duplicates = F,weights = weight) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist[,ncol(mnist)]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+
+## add prob  
+
+
+```{r}
+set.seed(610811101)
+mnist_tsne_3 <- cbind(mnist[,-785],label) %>% 
+  Rtsne(check_duplicates = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist[,ncol(mnist)]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_3,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+## add prob dist  
+
+
+```{r}
+y <- model.matrix(~Label-1,data = mnist)
+D <- rowSums((y-label)^2)
+
+set.seed(610811101)
+mnist_tsne_4 <- cbind(mnist[,-785],D) %>% 
+  Rtsne(check_duplicates = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist[,ncol(mnist)]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_4,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+
+# fashion mnist 
+
+
+```{r}
+xgb_fashion_mnist <- xgb.DMatrix(data=as.matrix(fashion_mnist[,1:784]),label=as.numeric(fashion_mnist[,785])-1)
+fashion_mnist_num_class <- length(levels(fashion_mnist$Label))
+xgb_fit <- xgboost(data = xgb_fashion_mnist, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "multi:softprob",
+num_class= fashion_mnist_num_class,
+verbose = 0
+)
+label <- predict(xgb_fit,as.matrix(fashion_mnist[,1:784]),reshape=T) %>%
+  as.data.frame() %>%
+  `colnames<-`(levels(fashion_mnist$Label))
+max_label <- apply(label,1,max)
+
+good_fit <- (max_label > quantile(max_label,0.75))
+
+cat("have high prob point number is",sum(good_fit), "in ",nrow(fashion_mnist) ,"\n")
+```
+
+## Rtsne  
+
+```{r}
+set.seed(610811101)
+fashion_mnist_tsne <- fashion_mnist[,1:784] %>% 
+  Rtsne(check_duplicates = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(fashion_mnist[,ncol(fashion_mnist)]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(fashion_mnist_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="fashion_mnist") 
+```
+
+## wtsne   
+
+
+```{r}
+weight <- ifelse(good_fit,2,1)
+set.seed(610811101)
+fashion_mnist_tsne_2 <- fashion_mnist[,1:784] %>% 
+  wtsne(check_duplicates = F,weights = weight) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(fashion_mnist[,ncol(fashion_mnist)]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(fashion_mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="fashion_mnist") 
+```
+
+
+## add prob  
+
+```{r}
+set.seed(610811101)
+fashion_mnist_tsne_3 <- cbind(fashion_mnist[,1:784],label) %>% 
+  Rtsne(check_duplicates = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(fashion_mnist[,ncol(fashion_mnist)]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(fashion_mnist_tsne_3,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="fashion_mnist") 
+```
+
+## add prob dist  
+
+
+```{r}
+y <- model.matrix(~Label-1,data = fashion_mnist)
+D <- rowSums((y-label)^2)
+set.seed(610811101)
+fashion_mnist_tsne_3 <- cbind(fashion_mnist[,1:784],D) %>% 
+  Rtsne(check_duplicates = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(fashion_mnist[,ncol(fashion_mnist)]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(fashion_mnist_tsne_3,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="fashion_mnist") 
+```
+
+
+
+# swiss_roll  
+
+```{r}
+swiss_roll <- snedata::swiss_roll(min_phi = 0,max_phi = 10*pi)
+hchart(swiss_roll,"scatter",hcaes(x = x,y=y,color = color))
+swiss_roll$class <- sqrt((swiss_roll$x)^2+(swiss_roll$y)^2) %/% (2*pi)
+
+hchart(swiss_roll,"scatter",hcaes(x = x,y=y,group = class))
+swiss_roll$class <- as.factor(swiss_roll$class)
+
+```
+
+
+
+
+```{r}
+xgb_swiss_roll <- xgb.DMatrix(data=as.matrix(swiss_roll[,1:3]),label=as.numeric(swiss_roll$class)-1)
+swiss_roll_num_class <- length(levels(swiss_roll$class))
+xgb_fit <- xgboost(data = xgb_swiss_roll, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "multi:softprob",
+num_class= swiss_roll_num_class,
+verbose = 0
+)
+label <- predict(xgb_fit,as.matrix(swiss_roll[,1:3]),reshape=T) %>%
+  as.data.frame() %>%
+  `colnames<-`(levels(swiss_roll$class))
+max_label <- apply(label,1,max)
+
+good_fit <- (max_label > quantile(max_label,0.75))
+
+cat("have high prob point number is",sum(good_fit), "in ",nrow(swiss_roll) ,"\n")
+
+```
+
+
+## Rtsne  
+
+```{r}
+set.seed(610811101)
+swiss_roll_tsne <- swiss_roll[,1:3] %>% 
+  Rtsne(check_duplicates = F,pca = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(swiss_roll$class) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(swiss_roll_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="swiss_roll") 
+```
+
+
+## wtsne   
+
+
+```{r}
+weight <- ifelse(good_fit,2,1)
+set.seed(610811101)
+swiss_roll_tsne_2 <- swiss_roll[,1:3] %>% 
+  wtsne(check_duplicates = F,pca = F,weights = weight) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(swiss_roll$class) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(swiss_roll_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="swiss_roll") 
+```
+
+## add prob  
+
+```{r}
+set.seed(610811101)
+swiss_roll_tsne_3 <- cbind(swiss_roll[,1:3],label) %>% 
+  Rtsne(check_duplicates = F,pca = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(swiss_roll$class) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(swiss_roll_tsne_3,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="swiss_roll") 
+```
+
+## add prob dist  
+
+
+```{r}
+y <- model.matrix(~class-1,data = swiss_roll)
+D <- rowSums((y-label)^2)
+
+set.seed(610811101)
+swiss_roll_tsne_4 <- cbind(swiss_roll[,1:3],D) %>% 
+  Rtsne(check_duplicates = F,pca = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(swiss_roll$class) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(swiss_roll_tsne_4,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="swiss_roll") 
+```
+
+# mlbench.spirals  
+
+```{r}
+mlbench.spirals <- mlbench::mlbench.spirals(10000)
+spirals <- cbind(mlbench.spirals$x,mlbench.spirals$classes) %>%
+  as.data.frame() %>%
+  `names<-`(c("x","y","class"))
+hchart(spirals,"scatter",hcaes(x = x,y=y,group = class))
+```
+
+
+
+
+```{r}
+xgb_spirals <- xgb.DMatrix(data=as.matrix(spirals[,1:2]),label=as.numeric(spirals$class)-1)
+spirals_num_class <- length(levels(spirals$class))
+xgb_fit <- xgboost(data = xgb_spirals, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "binary:logistic",
+verbose = 0
+)
+label <- predict(xgb_fit,as.matrix(spirals[,1:2])) 
+
+
+good_fit <- (label > quantile(label,0.75))
+
+cat("have high prob point number is",sum(good_fit), "in ",nrow(spirals) ,"\n")
+
+```
+
+
+## Rtsne  
+
+```{r}
+set.seed(610811101)
+spirals_tsne <- spirals[,1:2] %>% 
+  Rtsne(check_duplicates = F,pca = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(spirals$class) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(spirals_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="spirals") 
+```
+
+
+## wtsne   
+
+
+```{r}
+weight <- ifelse(good_fit,2,1)
+set.seed(610811101)
+spirals_tsne_2 <- spirals[,1:2] %>% 
+  wtsne(check_duplicates = F,pca = F,weights = weight) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(spirals$class) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(spirals_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="spirals") 
+```
+
+
+
+## add prob  
+
+```{r}
+set.seed(610811101)
+spirals_tsne_3 <- cbind(spirals[,1:2],label) %>% 
+  Rtsne(check_duplicates = F,pca = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(spirals$class) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(spirals_tsne_3,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="spirals") 
+```
+
+
+
+## add prob dist  
+
+
+```{r}
+D <- ((spirals$class==2)-label)^2
+
+set.seed(610811101)
+spirals_tsne_4 <- cbind(spirals[,1:2],D) %>% 
+  Rtsne(check_duplicates = F,pca = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(spirals$class) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(spirals_tsne_4,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="spirals") 
+```
+

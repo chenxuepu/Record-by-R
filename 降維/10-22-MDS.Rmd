@@ -1,0 +1,450 @@
+---
+title: "以MDS為變數"
+author: '610811101'
+date: "2020/10/22"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+```{r include=FALSE}
+library(highcharter)
+library(tidyverse)
+library(jiebaR)
+library(tidytext)
+library(quanteda)# textstat_dist
+library("Rtsne")
+library(magrittr)
+library(wordcloud)
+library(word2vec)
+library(proxy)
+library(uwot)
+library(udpipe)
+```
+
+# data 
+
+R package   
+
+```{r}
+
+data_package <- tools::CRAN_package_db() %>%
+  select(Package,Title,Description,Imports,Author)
+# data_package <- data_package %>%
+#   select(Package,Title,Description,Description)
+
+# is_RStudio <- ifelse(grepl("RStudio",data_package$Author),"RStudio","others")
+Rstudio_pg <- c("tidyverse","ggplot2","dplyr","tidyr","purrr","stringr","shiny","rmarkdown","flexdashboard","tensorflow","tidymodels","sparklyr","plumber","reticulate")
+
+repnames <- data_package$Package %>% table() %>% .[.>1]
+
+for(i in 1:length(repnames)){
+  x <- which(data_package$Package==names(repnames)[i])[-1]
+  data_package <- data_package[-x,]
+}
+
+
+
+
+# is_RStudio <- ifelse(grepl("RStudio",package_Imports$Author),ifelse(package_Imports$Package %in% Rstudio_pg,"best","RStudio"),"others")
+# load("G:\\我的雲端硬碟\\meeting\\Task_Views.RData")
+# 
+# repnames <- table(Task_Views$Package) %>% .[.>1]
+# 
+# 
+# for(i in 1:length(repnames)){
+#   Task_Views$Package[Task_Views$Package==names(repnames)[i]] <- c(names(repnames)[i],paste0(names(repnames)[i],"_",2:repnames[i]))
+# }
+# 
+# data_package <- left_join(data_package,Task_Views,by = "Package")
+# # data_package <- data_package[!is.na(data_package$Topics),]
+# data_package$Topics[is.na(data_package$Topics)] <- "others"
+
+
+files <- paste0(R.home(),"/library")
+packeage_base <- dir(files)
+data_base <- data.frame("Package" = packeage_base,"Title" = NA,"Description" = NA,"Imports" = NA,"Author" = NA,"Topics" = "base" )
+for(i in 1:length(packeage_base)){
+  pg_file <- paste0(files,"/",packeage_base[i],"/DESCRIPTION")
+  x <- readLines(pg_file)
+  x <- sapply(x, function(x) strsplit(x, ":")[[1]][1:2], USE.NAMES=FALSE) %>% t()
+  data_base$Title[i] <- x[x[,1]=="Title",2]
+  data_base$Description[i] <- x[x[,1]=="Description",2]
+  data_base$Author[i] <- x[x[,1]=="Author",2]
+  rm(x)
+}
+#####USE Details to change Description
+data_base$Description[data_base$Package=="base"] <- "This package contains the basic functions which let R function as a language: arithmetic, input/output, basic programming support, etc. Its contents are available through inheritance from any environment."
+
+data_base$Description[data_base$Package=="datasets"] <- "This package contains a variety of datasets. For a complete list,"
+
+data_base$Description[data_base$Package=="graphics"] <- "This package contains functions for ‘base’ graphics. Base graphics are traditional S-like graphics, as opposed to the more recent grid graphics."
+
+# data_base$Description[data_base$Package=="grDevices"] <- "This package contains functions which support both base and grid graphics."
+
+data_base$Description[data_base$Package=="methods"] <- "This package provides the “S4” or “S version 4” approach to methods and classes in a functional language.
+
+For basic use of the techniques, start with Introduction and follow the links there to the key functions for programming, notably setClass and setMethod."
+
+data_base$Description[data_base$Package=="stats"] <- "This package contains functions for statistical calculations and random number generation."
+
+data_base$Description[data_base$Package=="utils"] <- "This package contains a collection of utility functions."
+  
+
+
+
+
+# repnames <- table(data_package$Package) %>% .[.>1]
+# 
+# 
+# for(i in 1:length(repnames)){
+#   data_package$Package[data_package$Package==names(repnames)[i]] <- paste0(names(repnames)[i],"_",1:repnames[i])
+# }
+
+# data_package <- rbind(data_package,data_base)
+rm(list = ls()[!ls() %in% c("data_package","Task_Views","data_base")])
+```
+
+```{r}
+load("G:\\我的雲端硬碟\\meeting\\Task_Views.RData")
+Task_table <- table(Task_Views$Topics) %>%
+  as.data.frame() %>%
+  arrange(Freq)
+
+Topics <- c(Task_table$Var1[Task_table$Freq>100] %>% as.vector(),"base")
+
+
+Task_Views <- Task_Views[Task_Views$Topics %in% Topics,]
+
+
+repnames <- table(Task_Views$Package) %>% .[.>1]
+
+
+for(i in 1:length(repnames)){
+  Task_Views$Package[Task_Views$Package==names(repnames)[i]] <- c(names(repnames)[i],paste0(names(repnames)[i],"_",2:repnames[i]))
+}
+
+data_package <- left_join(data_package,Task_Views,by = "Package")
+data_package <- data_package[!is.na(data_package$Topics),]
+
+data_package <- rbind(data_package,data_base[!data_base$Package %in% data_package$Package,])
+
+rm(list = ls()[!ls() =="data_package"])
+```
+
+
+iris  
+
+```{r}
+data(iris)
+```
+
+
+mnist  
+
+這個資料MDS跑不動，沒法做。
+
+```{r}
+# mnist <- snedata::download_mnist()
+```
+
+
+
+# 以MDS為變數，做T-SNE、UMAP  
+
+##  資料R package   
+
+### MDS  
+
+```{r}
+
+
+package_Description_mds <- data_package %>%   
+  unnest_tokens(word,Description) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(Package,word) %>%
+  bind_tf_idf(word,Package,n) %>%
+  anti_join(stop_words, by = c("word" = "word")) %>%
+  filter(idf>3&idf<8) %>%
+  cast_dfm(document = Package,term = word,value = n) %>%
+  textstat_dist() %>%
+  cmdscale() %>%
+  as.data.frame() %>%
+  mutate(Package = row.names(.))
+
+names(package_Description_mds) <- c("x","y","Package")
+package_Description_mds <- left_join(package_Description_mds,data_package,by = "Package")
+
+
+
+
+```
+
+
+
+```{r}
+hchart(package_Description_mds,"scatter", hcaes(x=x,y=y,group = Topics,label = Package ,value = Description)) %>%
+  hc_title(text ="Description") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+```
+
+
+### T-SNE      
+
+
+```{r}
+
+
+
+package_Description_uni <- data_package %>%   
+  unnest_tokens(word,Description) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(Package,word) %>%
+  bind_tf_idf(word,Package,n) %>%
+  anti_join(stop_words, by = c("word" = "word")) %>%
+  filter(idf>3&idf<8) %>%
+  cast_dfm(document = Package,term = word,value = n) %>%
+  as.matrix() %>%
+  unique()
+
+
+package_Description <- package_Description_uni %>%
+  Rtsne() %$%
+  Y %>% 
+  as.data.frame() %>% 
+  mutate(Package = row.names(package_Description_uni))
+
+
+names(package_Description) <- c("x","y","Package")
+package_Description <- left_join(package_Description,data_package,by = "Package")
+
+
+
+
+
+```
+
+
+
+```{r}
+hchart(package_Description,"scatter", hcaes(x=x,y=y,group = Topics,label = Package ,value = Description)) %>%
+  hc_title(text ="Description") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+```
+
+
+### UMAP   
+
+```{r}
+
+
+package_Description <- data_package %>%   
+  unnest_tokens(word,Description) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(Package,word) %>%
+  bind_tf_idf(word,Package,n) %>%
+  anti_join(stop_words, by = c("word" = "word")) %>%
+  filter(idf>3&idf<8) %>%
+  cast_dfm(document = Package,term = word,value = n) %>%
+  as.matrix() 
+
+
+package_Description_umap_model <- umap::umap(package_Description)
+package_Description_umap <- 
+  package_Description_umap_model$layout%>% 
+  as.data.frame() %>% 
+  mutate(Package = row.names(package_Description))
+
+names(package_Description_umap) <- c("x","y","Package")
+package_Description_umap <- left_join(package_Description_umap,data_package,by = "Package")
+
+
+
+```
+
+```{r}
+hchart(package_Description_umap,"scatter", hcaes(x=x,y=y,group = Topics,label = Package ,value = Description)) %>%
+  hc_title(text ="Description") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+
+```
+
+
+
+### MDS+T-sne    
+
+
+```{r}
+
+
+
+package_Description_uni <- data_package %>%   
+  unnest_tokens(word,Description) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(Package,word) %>%
+  bind_tf_idf(word,Package,n) %>%
+  anti_join(stop_words, by = c("word" = "word")) %>%
+  filter(idf>3&idf<8) %>%
+  cast_dfm(document = Package,term = word,value = n) %>%
+  as.matrix() %>%
+  as.data.frame() %>%
+  # mutate(mds_x = package_Description_mds$x,mds_y = package_Description_mds$y) %>%
+  cbind(package_Description_mds[,c("x","y")]) %>%
+  unique()
+
+colnames(package_Description_uni) <- paste0("X",1:ncol(package_Description_uni))
+
+package_Description <- package_Description_uni %>%
+  Rtsne(X = .) %$%
+  Y %>% 
+  as.data.frame() %>% 
+  mutate(Package = row.names(package_Description_uni))
+
+
+names(package_Description) <- c("x","y","Package")
+package_Description <- left_join(package_Description,data_package,by = "Package")
+
+
+
+
+
+```
+
+
+
+```{r}
+hchart(package_Description,"scatter", hcaes(x=x,y=y,group = Topics,label = Package ,value = Description)) %>%
+  hc_title(text ="Description") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+```
+
+
+### MDS+UMAP   
+
+```{r}
+
+
+package_Description <- data_package %>%   
+  unnest_tokens(word,Description) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(Package,word) %>%
+  bind_tf_idf(word,Package,n) %>%
+  anti_join(stop_words, by = c("word" = "word")) %>%
+  filter(idf>3&idf<8) %>%
+  cast_dfm(document = Package,term = word,value = n) %>%
+  as.matrix() %>%
+  as.data.frame() %>%
+  # mutate(mds_x = package_Description_mds$x,mds_y = package_Description_mds$y)
+  cbind(package_Description_mds[,c("x","y")])
+
+
+package_Description_umap_model <- umap::umap(package_Description)
+package_Description_umap <- 
+  package_Description_umap_model$layout%>% 
+  as.data.frame() %>% 
+  mutate(Package = row.names(package_Description))
+
+names(package_Description_umap) <- c("x","y","Package")
+package_Description_umap <- left_join(package_Description_umap,data_package,by = "Package")
+
+
+
+```
+
+```{r}
+hchart(package_Description_umap,"scatter", hcaes(x=x,y=y,group = Topics,label = Package ,value = Description)) %>%
+  hc_title(text ="Description") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+
+```
+
+
+
+## 資料iris     
+
+### MDS
+
+```{r}
+iris_mds <- iris[,1:4] %>% dist() %>% cmdscale() %>% cbind(iris[,5]) %>% as.data.frame() %>% `names<-`(c("x","y","group"))
+
+
+hchart(iris_mds,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+
+
+```
+
+### T-SNE
+
+```{r}
+iris_tsne <- iris[,1:4] %>% `row.names<-`(1:150) %>% unique() %>%  Rtsne() %$% Y %>% as.data.frame() %>% cbind(.,iris[as.numeric(row.names(.)),5]) %>% `names<-`(c("x","y","group"))
+
+
+
+hchart(iris_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+```
+
+### UMAP   
+
+```{r}
+iris_umap <- uwot::umap(iris[,1:4], n_neighbors = 50, learning_rate = 0.5, init = "random") %>% as.data.frame() %>% `names<-`(c("x","y"))
+
+hchart(iris_umap,"scatter", hcaes(x=x,y=y,group = iris$Species)) %>%
+  hc_title(text ="iris") 
+
+```
+
+
+
+
+### MDS+T-SNE
+
+```{r}
+iris_tsne <- iris[,1:4] %>%
+  mutate(mds_x = iris_mds$x,mds_y = iris_mds$y) %>%
+  `row.names<-`(1:150) %>% unique() %>%  Rtsne() %$% Y %>% as.data.frame() %>% cbind(.,iris[as.numeric(row.names(.)),5]) %>% `names<-`(c("x","y","group"))
+
+
+
+hchart(iris_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+```
+
+### MDS+UMAP   
+
+```{r}
+iris_umap <- iris[,1:4] %>%
+  mutate(mds_x = iris_mds$x,mds_y = iris_mds$y) %>%
+  uwot::umap( n_neighbors = 50, learning_rate = 0.5, init = "random") %>% as.data.frame() %>% `names<-`(c("x","y"))
+
+hchart(iris_umap,"scatter", hcaes(x=x,y=y,group = iris$Species)) %>%
+  hc_title(text ="iris") 
+
+```
+
+
+
+
+
+
+
+
+
+
+

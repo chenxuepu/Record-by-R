@@ -1,0 +1,409 @@
+---
+title: "new data"
+author: '610811101'
+date: "2020/10/23"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+
+```{r include=FALSE}
+library(highcharter)
+library(tidyverse)
+library(tidytext)
+library(Rtsne)
+library(magrittr)
+library(quanteda)# textstat_dist
+library(uwot)
+library(icd.data)
+```
+
+
+
+
+```{r}
+finaldata9815 <- read.csv("G:/我的雲端硬碟/meeting/finaldata9815.csv")
+data_out <- read.csv("G:/我的雲端硬碟/meeting/data_out.csv")
+data_in <- read.csv("G:/我的雲端硬碟/meeting/data_in.csv")
+
+# data(icd10cm2016)
+
+```
+
+
+
+# ICD-10   
+
+## MDS  
+
+資料量太大，跑不動。  
+
+
+<!--
+### short_desc   
+
+
+```{r eval=FALSE, include=FALSE}
+
+icd_short_mds <- icd10cm2016 %>%
+  # filter(billable) %>%
+  unnest_tokens(word,short_desc) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(code,word) %>%
+  # bind_tf_idf(word,code,n) %>%
+  anti_join(stop_words, by = c("word" = "word")) %>%
+  cast_dfm(document = code,term = word,value = n) %>%
+  # as.matrix() %>%
+  # dist() %>%
+  textstat_dist() %>%
+  cmdscale() %>%
+  as.data.frame() %>%
+  mutate(code = row.names(.))
+  
+
+names(icd_short_mds) <- c("x","y","code")
+icd_short_mds <- left_join(icd_short_mds,icd10cm2016,by = "code")
+
+
+
+```
+
+
+```{r eval=FALSE, include=FALSE}
+hchart(icd_short_mds,"scatter", hcaes(x=x,y=y,group = major,label = code ,value = short_desc)) %>%
+  hc_title(text ="ICD-10") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+```
+
+
+### long_desc   
+
+```{r eval=FALSE, include=FALSE}
+
+icd_long_mds <- icd10cm2016 %>%
+  unnest_tokens(word,long_desc) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(code,word) %>%
+  # bind_tf_idf(word,code,n) %>%
+  anti_join(stop_words, by = c("word" = "word")) %>%
+  cast_dfm(document = code,term = word,value = n) %>%
+  textstat_dist() %>%
+  cmdscale() %>%
+  as.data.frame() %>%
+  mutate(code = row.names(.))
+  
+
+names(icd_long_mds) <- c("x","y","code")
+icd_long_mds <- left_join(icd_long_mds,icd10cm2016,by = "code")
+
+
+
+```
+
+
+```{r eval=FALSE, include=FALSE}
+hchart(icd_long_mds,"scatter", hcaes(x=x,y=y,group = major,label = code ,value = long_desc)) %>%
+  hc_title(text ="ICD-10") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+```
+
+
+-->
+
+
+## T-SNE  
+
+
+### short_desc  
+
+
+```{r}
+
+icd_short_uni <- icd10cm2016 %>%
+  unnest_tokens(word,short_desc) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(code,word) %>%
+  # bind_tf_idf(word,code,n) %>%
+  anti_join(stop_words, by = c("word" = "word")) %>%
+  cast_dfm(document = code,term = word,value = n) %>%
+  as.matrix() %>%
+  unique()
+  
+icd_short_tsne <- icd_short_uni %>%
+  Rtsne(check_duplicates = F) %$%
+  Y %>% 
+  as.data.frame() %>% 
+  mutate(code = row.names(icd_short_uni))
+
+
+icd10cm2016$code <- as.character(icd10cm2016$code)
+
+names(icd_short_tsne) <- c("x","y","code")
+icd_short_tsne <- left_join(icd_short_tsne,icd10cm2016,by = "code")
+
+```
+
+
+```{r}
+hchart(icd_short_tsne,"scatter", hcaes(x=x,y=y,group = major,label = code ,value = short_desc)) %>%
+  hc_title(text ="ICD-10") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+```
+
+
+### long_desc   
+
+```{r}
+
+icd_long_uni <- icd10cm2016 %>%
+  unnest_tokens(word,long_desc) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(code,word) %>%
+  # bind_tf_idf(word,code,n) %>%
+  anti_join(stop_words, by = c("word" = "word")) %>%
+  cast_dfm(document = code,term = word,value = n) %>%
+  as.matrix() %>%
+  unique()
+  
+icd_long_tsne <- icd_long_uni %>%
+  Rtsne(check_duplicates = F) %$%
+  Y %>% 
+  as.data.frame() %>% 
+  mutate(code = row.names(icd_long_uni))
+
+
+
+
+names(icd_long_tsne) <- c("x","y","code")
+icd_long_tsne <- left_join(icd_long_tsne,icd10cm2016,by = "code")
+
+```
+
+
+```{r}
+
+hchart(icd_long_tsne,"scatter", hcaes(x=x,y=y,group = major,label = code ,value = long_desc)) %>%
+  hc_title(text ="ICD-10") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+```
+
+
+
+
+
+
+## UMAP  
+
+### short_desc   
+
+
+```{r}
+
+icd_short <- icd10cm2016 %>%
+  unnest_tokens(word,short_desc) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(code,word) %>%
+  # bind_tf_idf(word,code,n) %>%
+  anti_join(stop_words, by = c("word" = "word")) %>%
+  cast_dfm(document = code,term = word,value = n) %>%
+  as.matrix()
+  
+icd_short_umap <- umap(icd_short) %>% 
+  as.data.frame() %>%
+  mutate(code = row.names(icd_short))
+
+
+
+
+names(icd_short_umap) <- c("x","y","code")
+icd_short_umap <- left_join(icd_short_umap,as.data.frame(icd10cm2016),by = "code")
+
+```
+
+
+```{r}
+hchart(icd_short_umap,"scatter", hcaes(x=x,y=y,group = major,label = code ,value = short_desc)) %>%
+  hc_title(text ="ICD-10") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+```
+
+
+### long_desc   
+
+```{r}
+
+icd_long <- icd10cm2016 %>%
+  unnest_tokens(word,long_desc) %>%
+  filter(grepl("[A-Za-z]+",word)) %>%
+  count(code,word) %>%
+  # bind_tf_idf(word,code,n) %>%
+  anti_join(stop_words, by = c("word" = "word")) %>%
+  cast_dfm(document = code,term = word,value = n) %>%
+  as.matrix()
+  
+icd_long_umap <- umap(icd_long) %>% 
+  as.data.frame() %>%
+  mutate(code = row.names(icd_long))
+
+
+
+
+names(icd_long_umap) <- c("x","y","code")
+icd_long_umap <- left_join(icd_long_umap,icd10cm2016,by = "code")
+
+```
+
+
+```{r}
+hchart(icd_long_tsne,"scatter", hcaes(x=x,y=y,group = major,label = code ,value = long_desc)) %>%
+  hc_title(text ="ICD-10") %>%
+  hc_chart(zoomType ="xy") %>%
+  hc_tooltip(formatter = JS("function () {
+                                   return '<b>' + this.point.label + '</b><br/>'+'Description: '+this.point.value;}"))
+```
+
+
+
+
+
+# finaldata9815  
+
+
+```{r}
+colname <- c("IC","OM","TDL","DP","MBA","RDA","REA","CEA","CBA","TA","beta","sigma","size","S.P.500.return")
+finaldata9815 <- finaldata9815[,c(colname,"LTR.rating.categories")]
+finaldata9815 <- finaldata9815[!(is.na(finaldata9815) %>% rowSums()),]
+finaldata <- finaldata9815[,colname]
+# finaldata <- finaldata[!(is.na(finaldata) %>% rowSums()),]
+```
+
+
+## MDS  
+
+
+```{r}
+finaldata_mds <- finaldata %>% 
+  dist() %>% 
+  cmdscale() %>%
+  as.data.frame() %>%
+  cbind(finaldata9815$LTR.rating.categories) %>%
+  `names<-`(c("x","y","rating"))
+
+hchart(finaldata_mds,"scatter", hcaes(x=x,y=y,group = rating)) %>%
+  hc_title(text ="finaldata_mds") 
+```
+
+
+
+## T-SNE   
+ 
+
+```{r}
+
+finaldata_tsne <- finaldata  %>% 
+  `row.names<-`(1:nrow(finaldata)) %>% 
+  unique() %>%  
+  Rtsne() %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(.,finaldata9815[as.numeric(row.names(.)),"LTR.rating.categories"]) %>%
+  `names<-`(c("x","y","rating"))
+
+
+
+
+hchart(finaldata_tsne,"scatter", hcaes(x=x,y=y,group = rating)) %>%
+  hc_title(text ="finaldata_tsne") 
+
+```
+
+
+## UMAP   
+ 
+  
+ 
+```{r}
+finaldata_umap <- finaldata  %>% 
+  umap() %>% 
+  as.data.frame() %>% 
+  cbind(finaldata9815$LTR.rating.categories) %>%
+  `names<-`(c("x","y","rating"))
+
+
+
+hchart(finaldata_umap,"scatter", hcaes(x=x,y=y,group = rating)) %>%
+  hc_title(text ="finaldata_umap") 
+```
+
+
+
+
+
+# data_in  
+
+## MDS  
+
+
+```{r}
+data_in_mds <- data_in[,4:15] %>% 
+  dist() %>% 
+  cmdscale() %>%
+  as.data.frame() %>% 
+  cbind(data_in$LGD) %>%
+  `names<-`(c("x","y","LGD"))
+
+hchart(data_in_mds,"scatter", hcaes(x=x,y=y,color = LGD)) %>%
+  hc_title(text ="data_in_mds") 
+```
+
+
+## T-SNE  
+
+
+```{r}
+
+data_in_tsne <- data_in[,4:15]  %>% 
+  `row.names<-`(1:nrow(data_in)) %>% 
+  unique() %>%  
+  Rtsne() %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(.,data_in[as.numeric(row.names(.)),"LGD"]) %>%
+  `names<-`(c("x","y","LGD"))
+
+
+hchart(data_in_tsne,"scatter", hcaes(x=x,y=y,color = LGD)) %>%
+  hc_title(text ="data_in_tsne") 
+```
+
+
+## UMAP  
+ 
+ 
+ 
+```{r}
+data_in_umap <- data_in[,4:15]  %>% 
+  umap() %>% 
+  as.data.frame() %>% 
+  cbind(data_in$LGD) %>%
+  `names<-`(c("x","y","LGD"))
+
+hchart(data_in_umap,"scatter", hcaes(x=x,y=y,color = LGD)) %>%
+  hc_title(text ="data_in_umap") 
+```

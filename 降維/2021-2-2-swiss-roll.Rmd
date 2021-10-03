@@ -1,0 +1,201 @@
+---
+title: "Swiss Roll"
+author: '610811101'
+date: "2021/2/2"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+```{r include=FALSE}
+library(highcharter)
+library(tidyverse)
+library(tidytext)
+library(Rtsne)
+library(wtsne)
+library(magrittr)
+library(xgboost)
+```
+
+```{r}
+weight_by_var <- function(data,pred){
+  data_sd <- apply(data,2,var) %>% mean() %>% sqrt()
+  if(is.vector(pred)){
+    # c(rep(1,ncol(data)),(data_sd/sd(pred))*ncol(data))
+    c(rep(1,ncol(data)),data_sd*ncol(data))
+  }else{
+    # pred_sd <- apply(pred,2,sd)
+    # c(rep(1,ncol(data)),(data_sd/pred_sd)*ncol(data)/ncol(pred))
+    c(rep(1,ncol(data)),rep(data_sd,ncol(pred))*ncol(data)/ncol(pred))
+  }
+}
+```
+
+
+
+
+# swiss_roll
+
+```{r}
+swiss_roll <- snedata::swiss_roll(min_phi = 0,max_phi = 10*pi)
+
+hchart(swiss_roll,"scatter",hcaes(x = x,y=y,color = color))
+hchart(swiss_roll,"scatter",hcaes(x = x,y=z,color = color))
+hchart(swiss_roll,"scatter",hcaes(x = y,y=z,color = color))
+swiss_roll$class <- sqrt((swiss_roll$x)^2+(swiss_roll$y)^2) %/% (2*pi)
+
+index <- sample(1:nrow(swiss_roll),0.6*nrow(swiss_roll))
+
+hchart(swiss_roll,"scatter",hcaes(x = x,y=y,group = class))
+hchart(swiss_roll,"scatter",hcaes(x = x,y=z,group = class))
+hchart(swiss_roll,"scatter",hcaes(x = y,y=z,group = class))
+swiss_roll$class <- as.factor(swiss_roll$class)
+
+xgb_swiss_roll <- xgb.DMatrix(data=as.matrix(swiss_roll[index,1:3]),label=as.numeric(swiss_roll$class[index])-1)
+swiss_roll_num_class <- length(levels(swiss_roll$class))
+xgb_fit <- xgboost(data = xgb_swiss_roll, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "multi:softprob",
+num_class= swiss_roll_num_class,
+verbose = 0
+)
+label <- predict(xgb_fit,as.matrix(swiss_roll[-index,1:3]),reshape=T) %>%
+  as.data.frame() %>%
+  `colnames<-`(levels(swiss_roll$class))
+```
+
+
+```{r}
+print("XGboost MSE")
+((label %>% apply(1,which.max) %>% levels(swiss_roll$class)[.]) == swiss_roll$class[-index]) %>% mean()
+
+```
+
+
+```{r}
+print("sd of predict")
+apply(label,2,sd)
+
+w <- weight_by_var(swiss_roll[,1:3],label)
+cat("data weight :",w[1],"pred weight :",w[length(w)])
+```
+
+## Rtsne
+
+```{r}
+set.seed(610811101)
+swiss_roll_tsne <- swiss_roll[-index,1:3] %>% 
+  Rtsne(check_duplicates = F,pca = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(swiss_roll$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(swiss_roll_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="swiss_roll") 
+```
+
+## wtsne
+
+```{r}
+set.seed(610811101)
+swiss_roll_tsne_2 <- cbind(swiss_roll[-index,1:3],label) %>% 
+  wtsne(check_duplicates = F,pca = F,col_weights = w) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(swiss_roll$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(swiss_roll_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="swiss_roll") 
+```
+
+# swiss_roll 2
+
+```{r}
+swiss_roll <- snedata::swiss_roll(min_phi = 0,max_phi = 10*pi)
+hchart(swiss_roll,"scatter",hcaes(x = x,y=y,color = color))
+hchart(swiss_roll,"scatter",hcaes(x = x,y=z,color = color))
+hchart(swiss_roll,"scatter",hcaes(x = y,y=z,color = color))
+swiss_roll$class <- (sqrt((swiss_roll$x)^2+(swiss_roll$y)^2) %/% (2*pi)) %% 2
+
+index <- sample(1:nrow(swiss_roll),0.6*nrow(swiss_roll))
+
+hchart(swiss_roll,"scatter",hcaes(x = x,y=y,group = class))
+hchart(swiss_roll,"scatter",hcaes(x = x,y=z,group = class))
+hchart(swiss_roll,"scatter",hcaes(x = y,y=z,group = class))
+swiss_roll$class <- as.factor(swiss_roll$class)
+
+```
+
+
+```{r}
+xgb_swiss_roll <- xgb.DMatrix(data=as.matrix(swiss_roll[index,1:3]),label=as.numeric(swiss_roll$class[index])-1)
+
+xgb_fit <- xgboost(data = xgb_swiss_roll, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "binary:logistic",
+verbose = 0
+)
+label <- predict(xgb_fit,as.matrix(swiss_roll[-index,1:3])) 
+```
+
+
+```{r}
+print("XGboost MSE")
+(as.numeric(label > 0.5) == swiss_roll$class[-index]) %>% mean()
+
+```
+
+```{r}
+print("sd of predict")
+sd(label)
+
+w <- weight_by_var(swiss_roll[,1:3],label)
+cat("data weight :",w[1],"pred weight :",w[length(w)])
+```
+
+## Rtsne
+
+```{r}
+set.seed(610811101)
+swiss_roll_tsne <- swiss_roll[-index,1:3] %>% 
+  Rtsne(check_duplicates = F,pca = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(swiss_roll$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(swiss_roll_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="swiss_roll") 
+```
+
+## wtsne
+
+```{r}
+set.seed(610811101)
+swiss_roll_tsne_2 <- cbind(swiss_roll[-index,1:3],label) %>% 
+  wtsne(check_duplicates = F,pca = F,col_weights = w) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(swiss_roll$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(swiss_roll_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="swiss_roll") 
+```
+
+

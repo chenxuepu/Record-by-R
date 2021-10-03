@@ -1,0 +1,458 @@
+---
+title: "T-SNE"
+author: '610811101'
+date: "2021/4/15"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+```{r include=FALSE}
+library(caret)
+library(highcharter)
+library(tidyverse)
+library(tidytext)
+library(Rtsne)
+library(stsne)
+library(magrittr)
+library(xgboost)
+library(sneer)
+# library(ggplot2)
+```
+
+
+
+```{r}
+weight_by_var <- function(data,pred){
+  data_sd <- apply(data,2,var) %>% mean() %>% sqrt()
+  if(is.vector(pred)){
+    # c(rep(1,ncol(data)),(data_sd/sd(pred))*ncol(data))
+    c(rep(1,ncol(data)),data_sd*ncol(data))
+  }else{
+    # pred_sd <- apply(pred,2,sd)
+    # c(rep(1,ncol(data)),(data_sd/pred_sd)*ncol(data)/ncol(pred))
+    c(rep(1,ncol(data)),rep(data_sd,ncol(pred))*ncol(data)/ncol(pred))
+  }
+}
+```
+
+
+```{r}
+Crowding_data <- function(p = 99,n = 100,sd = p/10){
+  point <- function(){
+    x <- diag(p) %>%
+      rbind(rep((2+sqrt(4+4*p))/(2*p),p))*p 
+    # rbind(rep((2-sqrt(4+4*p))/(2*p),p))*p 
+    x <- as.data.frame(x)
+    x
+  }
+  res <- rnorm(n*(p^2+p),sd = sd) %>%
+    matrix(nrow = n,ncol =  (p^2+p))
+  data <- apply(res,1,function(x){
+    res <- matrix(x,nrow = p+1,ncol = p)
+    data <- point()+res
+    data$class <- paste0("point",1:(p+1)) %>% as.factor()
+    data
+  })
+  do.call(rbind,data)
+}
+
+Crowding <- Crowding_data(p = 9,n = 1000)
+
+```
+
+# p = 9 
+
+生成1萬筆資料。
+
+```{r}
+summary(Crowding)
+```
+
+
+```{r}
+index <- createDataPartition(y = Crowding$class,p = 0.7, list = F)
+xgb_Crow <- xgb.DMatrix(data=as.matrix(Crowding[index,-10]),label=as.numeric(Crowding$class[index])-1)
+Crow_num_class <- length(levels(Crowding$class))
+xgb_fit <- xgboost(data = xgb_Crow, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "multi:softprob",
+num_class= Crow_num_class,
+verbose = 0
+)
+label <- predict(xgb_fit,as.matrix(Crowding[-index,-10]),reshape=T) %>%
+  as.data.frame() %>%
+  `colnames<-`(levels(Crowding$class))
+```
+
+
+```{r}
+print("Confusion Matrix")
+table(Crowding$class[-index],colnames(label)[apply(label,1,which.max)])
+
+print("sd of predict")
+apply(label,2,sd)
+
+w <- weight_by_var(Crowding[,-10],label)
+cat("data weight :",w[1],"pred weight :",w[length(w)])
+```
+
+## PCA 
+
+```{r}
+crowding_pca <- prcomp(Crowding[,-ncol(Crowding)]) %$%
+  x %>%
+  as.data.frame()
+
+crowding_pca <- cbind(crowding_pca[,1:2],Crowding$class) %>%
+  `names<-`(c("x","y","group"))
+
+hchart(crowding_pca,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding")
+
+# ggplot(crowding_pca,aes(x=x,y=y,color = group))+
+  # geom_point()
+```
+
+
+
+## SNE 
+
+```{r}
+set.seed(610811101)
+Crowd_sne <- Crowding[-index,-10] %>% 
+  sneer(method = "asne",plot_type = "none") %$% 
+  coords %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crowd_sne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding") 
+
+```
+
+
+
+## Rtsne
+
+```{r}
+
+set.seed(610811101)
+Crow_tsne <- Crowding[-index,-10] %>% 
+  Rtsne(theta = 0,check_duplicates = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crow_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding") 
+
+
+rm(Crow_tsne)
+```
+
+
+## stsne
+
+
+### no Dependent Variable
+
+```{r}
+print("r = 1.5")
+
+set.seed(610811101)
+Crow_tsne_2 <- Crowding[-index,-10] %>% 
+  stsne(theta = 0,check_duplicates = F,r = 1.5) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crow_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding") 
+
+
+print("r = 2")
+
+set.seed(610811101)
+Crow_tsne_2 <- Crowding[-index,-10] %>% 
+  stsne(theta = 0,check_duplicates = F,r = 2) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crow_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding") 
+
+print("r = 2.5")
+
+set.seed(610811101)
+Crow_tsne_2 <- Crowding[-index,-10] %>% 
+  stsne(theta = 0,check_duplicates = F,r = 2.5) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crow_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding") 
+
+rm(Crow_tsne_2)
+```
+
+
+### with Dependent Variable
+
+
+```{r}
+
+print("r = 1.5")
+
+set.seed(610811101)
+Crow_tsne_3 <- cbind(Crowding[-index,-10],label) %>% 
+  stsne(theta = 0,check_duplicates = F,col_weights = w,r = 1.5) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crow_tsne_3,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding")
+
+print("r = 2")
+
+set.seed(610811101)
+Crow_tsne_3 <- cbind(Crowding[-index,-10],label) %>% 
+  stsne(theta = 0,check_duplicates = F,col_weights = w,r = 2) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crow_tsne_3,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding")
+
+print("r = 2.5")
+
+set.seed(610811101)
+Crow_tsne_3 <- cbind(Crowding[-index,-10],label) %>% 
+  stsne(theta = 0,check_duplicates = F,col_weights = w,r = 2.5) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crow_tsne_3,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding")
+
+rm(Crow_tsne_3)
+```
+
+
+
+
+# p = 19 
+
+生成1萬筆資料。
+
+```{r}
+Crowding <- Crowding_data(p = 19,n = 500)
+summary(Crowding)
+```
+
+
+```{r}
+index <- createDataPartition(y = Crowding$class,p = 0.7, list = F)
+xgb_Crow <- xgb.DMatrix(data=as.matrix(Crowding[index,-20]),label=as.numeric(Crowding$class[index])-1)
+Crow_num_class <- length(levels(Crowding$class))
+xgb_fit <- xgboost(data = xgb_Crow, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "multi:softprob",
+num_class= Crow_num_class,
+verbose = 0
+)
+label <- predict(xgb_fit,as.matrix(Crowding[-index,-20]),reshape=T) %>%
+  as.data.frame() %>%
+  `colnames<-`(levels(Crowding$class))
+```
+
+
+```{r}
+print("Confusion Matrix")
+table(Crowding$class[-index],colnames(label)[apply(label,1,which.max)])
+
+print("sd of predict")
+apply(label,2,sd)
+
+w <- weight_by_var(Crowding[,-20],label)
+cat("data weight :",w[1],"pred weight :",w[length(w)])
+```
+
+## PCA 
+
+```{r}
+crowding_pca <- prcomp(Crowding[,-ncol(Crowding)]) %$%
+  x %>%
+  as.data.frame()
+
+crowding_pca <- cbind(crowding_pca[,1:2],Crowding$class) %>%
+  `names<-`(c("x","y","group"))
+
+hchart(crowding_pca,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding") 
+```
+
+
+## SNE 
+
+```{r}
+set.seed(610811101)
+Crowd_sne <- Crowding[-index,-20] %>% 
+  sneer(method = "asne",plot_type = "none") %$% 
+  coords %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crowd_sne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding") 
+
+```
+
+
+
+## Rtsne
+
+```{r}
+
+set.seed(610811101)
+Crow_tsne <- Crowding[-index,-20] %>% 
+  Rtsne(theta = 0,check_duplicates = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crow_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding") 
+
+
+rm(Crow_tsne)
+```
+
+
+## stsne
+
+
+### no Dependent Variable
+
+```{r}
+print("r = 1.5")
+
+set.seed(610811101)
+Crow_tsne_2 <- Crowding[-index,-20] %>% 
+  stsne(theta = 0,check_duplicates = F,r = 1.5) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crow_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding") 
+
+
+print("r = 2")
+
+set.seed(610811101)
+Crow_tsne_2 <- Crowding[-index,-20] %>% 
+  stsne(theta = 0,check_duplicates = F,r = 2) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crow_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding") 
+
+print("r = 2.5")
+
+set.seed(610811101)
+Crow_tsne_2 <- Crowding[-index,-20] %>% 
+  stsne(theta = 0,check_duplicates = F,r = 2.5) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crow_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding") 
+
+rm(Crow_tsne_2)
+```
+
+
+### with Dependent Variable
+
+
+```{r}
+
+print("r = 1.5")
+
+set.seed(610811101)
+Crow_tsne_3 <- cbind(Crowding[-index,-20],label) %>% 
+  stsne(theta = 0,check_duplicates = F,col_weights = w,r = 1.5) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crow_tsne_3,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding")
+
+print("r = 2")
+
+set.seed(610811101)
+Crow_tsne_3 <- cbind(Crowding[-index,-20],label) %>% 
+  stsne(theta = 0,check_duplicates = F,col_weights = w,r = 2) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crow_tsne_3,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding")
+
+print("r = 2.5")
+
+set.seed(610811101)
+Crow_tsne_3 <- cbind(Crowding[-index,-20],label) %>% 
+  stsne(theta = 0,check_duplicates = F,col_weights = w,r = 2.5) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(Crowding$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(Crow_tsne_3,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="Crowding")
+
+rm(Crow_tsne_3)
+```
+
+
+

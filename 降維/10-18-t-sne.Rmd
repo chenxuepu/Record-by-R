@@ -1,0 +1,93 @@
+---
+title: "T-SNE-KNN"
+author: '610811101'
+date: "2020/10/18"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+
+```{r include=FALSE}
+library(highcharter)
+library(tidyverse)
+# library(jiebaR)
+# library(tidytext)
+# library(quanteda)# textstat_dist
+library("Rtsne")
+library(magrittr)
+# library(wordcloud)
+# library(word2vec)
+# library(proxy)
+library(uwot)
+# library(udpipe)
+
+```
+
+```{r}
+mnist <- snedata::download_mnist()
+```
+
+
+
+```{r}
+
+set.seed(610811101)
+mnist_tsne <- mnist %>% Rtsne() %$% Y %>% as.data.frame() %>% cbind(mnist[,ncol(mnist)]) %>% `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+
+
+### use UMAP for t-sne y_init 
+
+
+```{r}
+mnist_umap <- umap(mnist, n_neighbors = 15, min_dist = 0.001, verbose = TRUE) %>% as.data.frame() %>% `names<-`(c("x","y"))
+set.seed(610811101)
+mnist_umap_tsne <- mnist %>% Rtsne(Y_init = mnist_tsne[,c("x","y")]) %$% Y %>% as.data.frame() %>% cbind(mnist[,ncol(mnist)]) %>% `names<-`(c("x","y","group"))
+
+hchart(mnist_umap_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+
+
+
+# KNN  
+
+
+```{r}
+library(class)
+t_sne_knn <- data.frame(matrix(ncol = 2)) %>% `names<-`(c("k","Grades"))
+for(i in 1:20){
+  t_sne_knn[i,] <- c(i,mean(knn(mnist_tsne[,c("x","y")],mnist_tsne[,c("x","y")],mnist_tsne$group,k = i)==mnist_tsne$group))
+}
+  
+
+
+umap_tsne_knn <- data.frame(matrix(ncol = 2)) %>% `names<-`(c("k","Grades"))
+for(i in 1:20){
+  umap_tsne_knn[i,] <- c(i,mean(knn(mnist_umap_tsne[,c("x","y")],mnist_umap_tsne[,c("x","y")],mnist_umap_tsne$group,k = i)==mnist_umap_tsne$group))
+}
+
+
+hchart(t_sne_knn,"line", hcaes(x=k,y=Grades),color = "blue") %>%
+  hc_add_series(umap_tsne_knn,"line", hcaes(x=k,y=Grades),color = "black")
+
+
+```
+
+
+
+
+
+
+

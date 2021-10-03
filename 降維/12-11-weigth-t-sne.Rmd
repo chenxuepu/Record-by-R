@@ -1,0 +1,234 @@
+---
+title: "weight-T-SNE"
+author: '610811101'
+date: "2020/12/11"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+
+
+```{r include=FALSE}
+library(highcharter)
+library(tidyverse)
+library(tidytext)
+library(Rtsne)
+library(magrittr)
+library(xgboost)
+```
+
+
+
+```{r}
+# data
+mnist <- snedata::download_mnist()
+fashion_mnist <- snedata::download_fashion_mnist()
+```
+
+
+
+
+# iris  
+
+use XGboost to classifier
+
+```{r}
+xgb_iris <- xgb.DMatrix(data=as.matrix(iris[,-5]),label=as.numeric(iris[,5])-1)
+iris_num_class <- length(levels(iris$Species))
+xgb_fit <- xgboost(data = xgb_iris, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "multi:softprob",
+num_class= iris_num_class,
+verbose = 0
+)
+label <- predict(xgb_fit,as.matrix(iris[,-5]),reshape=T) %>%
+  as.data.frame() %>%
+  `colnames<-`(levels(iris$Species))
+max_label <- apply(label,1,max)
+
+good_fit <- (max_label > (1/2+1/(2*iris_num_class)))
+
+cat("have high prob point number is",sum(good_fit), "in ",nrow(iris) ,"\n")
+```
+## original data  
+
+```{r}
+
+set.seed(610811101)
+iris_tsne <- iris[,-5] %>% 
+  Rtsne(check_duplicates = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(iris[,ncol(iris)]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(iris_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+
+```
+
+## all train data  
+
+```{r}
+
+set.seed(610811101)
+iris_tsne_2 <- rbind(iris[,-5],iris[good_fit,-5]) %>% 
+  Rtsne(check_duplicates = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(c(as.character(iris[,5]),as.character(iris[good_fit,5]))) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(iris_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+
+```
+
+## remove the same point  
+
+```{r}
+hchart(iris_tsne_2[1:nrow(iris),],"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+```
+
+# mnist 
+
+
+```{r}
+xgb_mnist <- xgb.DMatrix(data=as.matrix(mnist[,-785]),label=as.numeric(mnist[,785])-1)
+mnist_num_class <- length(levels(mnist$Label))
+xgb_fit <- xgboost(data = xgb_mnist, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "multi:softprob",
+num_class= mnist_num_class,
+verbose = 0
+)
+label <- predict(xgb_fit,as.matrix(mnist[,-785]),reshape=T) %>%
+  as.data.frame() %>%
+  `colnames<-`(levels(mnist$Label))
+max_label <- apply(label,1,max)
+
+good_fit <- (max_label > (1/2+1/(2*mnist_num_class)))
+
+cat("have high prob point number is",sum(good_fit), "in ",nrow(iris) ,"\n")
+```
+
+## original data  
+
+```{r}
+set.seed(610811101)
+mnist_tsne <- mnist[,-785] %>% 
+  Rtsne(check_duplicates = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist[,ncol(mnist)]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+## all train data  
+
+
+```{r}
+set.seed(610811101)
+mnist_tsne_2 <- rbind(mnist[,-785],mnist[good_fit,-785]) %>% 
+  Rtsne(check_duplicates = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(c(as.character(mnist[,785]),as.character(mnist[good_fit,785]))) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+
+## remove the same point  
+
+```{r}
+hchart(mnist_tsne_2[1:nrow(mnist),],"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+
+
+# fashion mnist 
+
+
+```{r}
+xgb_fashion_mnist <- xgb.DMatrix(data=as.matrix(fashion_mnist[,1:784]),label=as.numeric(fashion_mnist[,785])-1)
+fashion_mnist_num_class <- length(levels(fashion_mnist$Label))
+xgb_fit <- xgboost(data = xgb_fashion_mnist, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "multi:softprob",
+num_class= fashion_mnist_num_class,
+verbose = 0
+)
+label <- predict(xgb_fit,as.matrix(fashion_mnist[,1:784]),reshape=T) %>%
+  as.data.frame() %>%
+  `colnames<-`(levels(fashion_mnist$Label))
+max_label <- apply(label,1,max)
+
+good_fit <- (max_label > (1/2+1/(2*fashion_mnist_num_class)))
+
+cat("have high prob point number is",sum(good_fit), "in ",nrow(iris) ,"\n")
+```
+
+## original data  
+
+```{r}
+set.seed(610811101)
+fashion_mnist_tsne <- fashion_mnist[,1:784] %>% 
+  Rtsne(check_duplicates = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(fashion_mnist[,ncol(fashion_mnist)]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(fashion_mnist_tsne,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="fashion_mnist") 
+```
+
+## all train data  
+
+
+```{r}
+set.seed(610811101)
+fashion_mnist_tsne_2 <- rbind(fashion_mnist[,1:784],fashion_mnist[good_fit,1:784]) %>% 
+  Rtsne(check_duplicates = F) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(c(as.character(fashion_mnist[,785]),as.character(fashion_mnist[good_fit,785]))) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(fashion_mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="fashion_mnist") 
+```
+
+
+## remove the same point  
+
+```{r}
+hchart(fashion_mnist_tsne_2[1:nrow(fashion_mnist),],"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="fashion_mnist") 
+```

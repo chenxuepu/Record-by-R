@@ -1,0 +1,87 @@
+---
+title: "Rtsne vs WTSNE"
+author: '610811101'
+date: "2020/12/20"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+
+```{r}
+# devtools::install_github("chenxuepu/WTSNE")
+library(Rtsne)
+library(WTSNE)
+library(magrittr)
+library(highcharter)
+```
+
+```{r}
+iris_uni <- unique(iris)
+```
+
+# Rtsne theta = 0.5   
+
+```{r}
+set.seed(123456)
+iris_tsne_1 <- Rtsne::Rtsne(iris_uni[,-5],verbose = T)
+
+
+```
+
+
+```{r}
+iris_tsne_1$Y%>% 
+  as.data.frame() %>% 
+  cbind(iris_uni$Species) %>% 
+  `names<-`(c("x","y","group")) %>%
+  hchart("scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+```
+
+
+# Rtsne theta = 0  
+
+```{r}
+set.seed(123456)
+iris_tsne_2 <- Rtsne::Rtsne(iris_uni[,-5],verbose = T,theta = 0)
+```
+
+
+```{r}
+iris_tsne_2$Y%>% 
+  as.data.frame() %>% 
+  cbind(iris_uni$Species) %>% 
+  `names<-`(c("x","y","group")) %>%
+  hchart("scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+```
+
+
+# WTSNE  
+
+
+```{r}
+set.seed(123456)
+iris_tsne_3 <- WTSNE::WTSNE(iris_uni[,-5],verbose = T)
+```
+
+
+```{r}
+iris_tsne_3$Y%>% 
+  as.data.frame() %>% 
+  cbind(iris_uni$Species) %>% 
+  `names<-`(c("x","y","group")) %>%
+  hchart("scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+```
+
+
+
+
+

@@ -1,0 +1,565 @@
+---
+title: "weight-T-SNE"
+author: '610811101'
+date: "2020/12/31"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+因為在使用tree的方法中，X是怎麼產生P不是很了解，所以沒辦法在C++的程式中加上了column的權重。
+另外，原本的程式是會做PCA的，直接去改C++的程式碼，也不行。
+
+於是我在R中加上了column的權重。
+
+目前需要確定兩件事。
+
+一.
+先加權重後做PCA，這時候是不是有沒有做normalize，都不影響我加的權重?
+
+二.
+加權重前有沒有做normalize，是否有影響?
+
+另外，分多類的問題，沒辦法做一般的GLM，或是做了之後不確定
+
+
+```{r include=FALSE}
+library(highcharter)
+library(tidyverse)
+library(tidytext)
+library(Rtsne)
+library(wtsne)
+library(magrittr)
+library(xgboost)
+
+library(nnet)
+```
+
+```{r}
+# data
+mnist <- snedata::download_mnist()
+fashion_mnist <- snedata::download_fashion_mnist()
+```
+# iris
+
+## multinomial logistic regression  
+
+```{r}
+uni_iris <- unique(iris)
+
+mul_iris <- multinom(Species~.,data = uni_iris) %>%
+  summary()
+
+w <- abs(mul_iris$standard.errors/mul_iris$coefficients) %>%
+  colSums() %>% .[2:length(.)]
+```
+
+
+```{r}
+wtsne_iris <- wtsne::wtsne(uni_iris[,1:4],col_weights = w)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_iris$Species) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_iris,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+```
+
+## xgboost importance 
+
+```{r}
+xgb_iris <- xgb.DMatrix(data=as.matrix(uni_iris[,-5]),label=as.numeric(uni_iris[,5])-1)
+iris_num_class <- length(levels(uni_iris$Species))
+xgb_fit <- xgboost(data = xgb_iris, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "multi:softprob",
+num_class= iris_num_class,
+verbose = 0
+)
+imp_iris <- xgb.importance(model = xgb_fit)
+```
+
+
+```{r}
+wtsne_iris <- wtsne::wtsne(uni_iris[,imp_iris$Feature],col_weights = imp_iris$Gain)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_iris$Species) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_iris,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+```
+
+```{r}
+wtsne_iris <- wtsne::wtsne(uni_iris[,imp_iris$Feature],col_weights = imp_iris$Cover)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_iris$Species) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_iris,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+```
+
+```{r}
+wtsne_iris <- wtsne::wtsne(uni_iris[,imp_iris$Feature],col_weights = imp_iris$Frequency)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_iris$Species) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_iris,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+```
+
+
+# mnist  
+
+```{r}
+uni_mnist <- unique(mnist)
+
+```
+
+
+## multinomial logistic regression   
+
+跑不了  
+
+## xgboost importance 
+
+
+```{r}
+xgb_mnist <- xgb.DMatrix(data=as.matrix(uni_mnist[,-785]),label=as.numeric(uni_mnist[,785])-1)
+mnist_num_class <- length(levels(uni_mnist$Label))
+xgb_fit <- xgboost(data = xgb_mnist, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "multi:softprob",
+num_class= mnist_num_class,
+verbose = 0
+)
+imp_mnist <- xgb.importance(model = xgb_fit)
+```
+
+Gain  
+
+
+```{r}
+wtsne_mnist <- wtsne::wtsne(uni_mnist[,imp_mnist$Feature],col_weights = imp_mnist$Gain)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_mnist$Label) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_mnist,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+
+Cover  
+
+```{r}
+wtsne_mnist <- wtsne::wtsne(uni_mnist[,imp_mnist$Feature],col_weights = imp_mnist$Cover)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_mnist$Label) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_mnist,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+
+
+Frequency  
+
+```{r}
+wtsne_mnist <- wtsne::wtsne(uni_mnist[,imp_mnist$Feature],col_weights = imp_mnist$Frequency)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_mnist$Label) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_mnist,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+
+
+# fashion mnist 
+
+
+```{r}
+uni_fashion_mnist <- unique(fashion_mnist)
+```
+
+## multinomial logistic regression   
+
+跑不了  
+
+## xgboost importance 
+
+```{r}
+xgb_fashion_mnist <- xgb.DMatrix(data=as.matrix(uni_fashion_mnist[,1:784]),label=as.numeric(uni_fashion_mnist[,785])-1)
+fashion_mnist_num_class <- length(levels(uni_fashion_mnist$Label))
+xgb_fit <- xgboost(data = xgb_fashion_mnist, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "multi:softprob",
+num_class= fashion_mnist_num_class,
+verbose = 0
+)
+imp_fashion_mnist <- xgb.importance(model = xgb_fit)
+```
+
+
+Gain  
+
+
+```{r}
+wtsne_fashion_mnist <- wtsne::wtsne(uni_fashion_mnist[,imp_fashion_mnist$Feature],col_weights = imp_fashion_mnist$Gain)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_fashion_mnist$Label) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_fashion_mnist,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+
+Cover  
+
+```{r}
+wtsne_fashion_mnist <- wtsne::wtsne(uni_fashion_mnist[,imp_fashion_mnist$Feature],col_weights = imp_fashion_mnist$Cover)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_fashion_mnist$Label) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_fashion_mnist,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+
+
+Frequency  
+
+```{r}
+wtsne_fashion_mnist <- wtsne::wtsne(uni_fashion_mnist[,imp_fashion_mnist$Feature],col_weights = imp_fashion_mnist$Frequency)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_fashion_mnist$Label) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_fashion_mnist,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+
+
+
+
+# swiss_roll  
+
+```{r}
+swiss_roll <- snedata::swiss_roll(min_phi = 0,max_phi = 10*pi)
+hchart(swiss_roll,"scatter",hcaes(x = x,y=y,color = color))
+swiss_roll$class <- sqrt((swiss_roll$x)^2+(swiss_roll$y)^2) %/% (2*pi)
+
+hchart(swiss_roll,"scatter",hcaes(x = x,y=y,group = class))
+swiss_roll$class <- as.factor(swiss_roll$class)
+
+```
+
+```{r}
+uni_swiss_roll <- unique(swiss_roll)
+```
+
+
+## multinomial logistic regression   
+
+跑不了
+
+
+## xgboost importance 
+
+
+```{r}
+xgb_swiss_roll <- xgb.DMatrix(data=as.matrix(uni_swiss_roll[,1:3]),label=as.numeric(uni_swiss_roll$class)-1)
+swiss_roll_num_class <- length(levels(uni_swiss_roll$class))
+xgb_fit <- xgboost(data = xgb_swiss_roll, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "multi:softprob",
+num_class= swiss_roll_num_class,
+verbose = 0
+)
+imp_swiss_roll <- xgb.importance(model = xgb_fit)
+```
+
+
+
+Gain  
+
+
+```{r}
+wtsne_swiss_roll <- wtsne::wtsne(uni_swiss_roll[,imp_swiss_roll$Feature],col_weights = imp_swiss_roll$Gain)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_swiss_roll$class) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_swiss_roll,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="swiss_roll") 
+```
+
+
+Cover  
+
+
+```{r}
+wtsne_swiss_roll <- wtsne::wtsne(uni_swiss_roll[,imp_swiss_roll$Feature],col_weights = imp_swiss_roll$Cover)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_swiss_roll$class) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_swiss_roll,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="swiss_roll") 
+```
+
+
+
+
+Frequency  
+
+
+```{r}
+wtsne_swiss_roll <- wtsne::wtsne(uni_swiss_roll[,imp_swiss_roll$Feature],col_weights = imp_swiss_roll$Frequency)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_swiss_roll$class) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_swiss_roll,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="swiss_roll") 
+```
+
+
+# swiss_roll 2  
+  
+```{r}
+swiss_roll <- snedata::swiss_roll(min_phi = 0,max_phi = 10*pi)
+hchart(swiss_roll,"scatter",hcaes(x = x,y=y,color = color))
+swiss_roll$class <- (sqrt((swiss_roll$x)^2+(swiss_roll$y)^2) %/% (2*pi)) %% 2
+
+hchart(swiss_roll,"scatter",hcaes(x = x,y=y,group = class))
+swiss_roll$class <- as.factor(swiss_roll$class)
+
+```
+
+```{r}
+uni_swiss_roll <- unique(swiss_roll)
+```
+
+
+## multinomial logistic regression   
+
+跑不了
+
+
+## xgboost importance 
+
+
+```{r}
+xgb_swiss_roll <- xgb.DMatrix(data=as.matrix(uni_swiss_roll[,1:3]),label=as.numeric(uni_swiss_roll$class)-1)
+swiss_roll_num_class <- length(levels(uni_swiss_roll$class))
+xgb_fit <- xgboost(data = xgb_swiss_roll, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "multi:softprob",
+num_class= swiss_roll_num_class,
+verbose = 0
+)
+imp_swiss_roll <- xgb.importance(model = xgb_fit)
+```
+
+
+
+Gain  
+
+
+```{r}
+wtsne_swiss_roll <- wtsne::wtsne(uni_swiss_roll[,imp_swiss_roll$Feature],col_weights = imp_swiss_roll$Gain)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_swiss_roll$class) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_swiss_roll,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="swiss_roll") 
+```
+
+
+Cover  
+
+
+```{r}
+wtsne_swiss_roll <- wtsne::wtsne(uni_swiss_roll[,imp_swiss_roll$Feature],col_weights = imp_swiss_roll$Cover)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_swiss_roll$class) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_swiss_roll,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="swiss_roll") 
+```
+
+
+
+
+Frequency  
+
+
+```{r}
+wtsne_swiss_roll <- wtsne::wtsne(uni_swiss_roll[,imp_swiss_roll$Feature],col_weights = imp_swiss_roll$Frequency)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_swiss_roll$class) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_swiss_roll,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="swiss_roll") 
+```
+
+
+
+# mlbench.spirals  
+
+```{r}
+mlbench.spirals <- mlbench::mlbench.spirals(500,cycles = 3,sd = 0.04)
+spirals <- cbind(mlbench.spirals$x,mlbench.spirals$classes) %>%
+  as.data.frame() %>%
+  `names<-`(c("x","y","class"))
+hchart(spirals,"scatter",hcaes(x = x,y=y,group = class))
+```
+
+```{r}
+uni_spirals <- unique(spirals)
+uni_spirals$class <- as.factor(uni_spirals$class)
+```
+
+
+## multinomial logistic regression   
+
+```{r}
+
+glm_spirals <- glm(class~.,data = uni_spirals,family = binomial()) %>%
+  summary()
+
+w <- glm_spirals$coefficients[2:nrow(glm_spirals$coefficients),4]
+```
+
+
+```{r}
+wtsne_spirals <- wtsne::wtsne(uni_spirals[, names(w)],col_weights = w)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_spirals$class) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_spirals,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="spirals") 
+```
+
+## xgboost importance 
+
+```{r}
+xgb_spirals <- xgb.DMatrix(data=as.matrix(uni_spirals[,1:2]),label=as.numeric(uni_spirals$class)-1)
+spirals_num_class <- length(levels(uni_spirals$class))
+xgb_fit <- xgboost(data = xgb_spirals, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "binary:logistic",
+verbose = 0
+)
+imp_spirals <- xgb.importance(model = xgb_fit)
+```
+
+
+
+Gain  
+
+
+```{r}
+wtsne_spirals <- wtsne::wtsne(uni_spirals[,imp_spirals$Feature],col_weights = imp_spirals$Gain)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_spirals$class) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_spirals,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="spirals") 
+```
+
+
+Cover  
+
+
+```{r}
+wtsne_spirals <- wtsne::wtsne(uni_spirals[,imp_spirals$Feature],col_weights = imp_spirals$Cover)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_spirals$class) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_spirals,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="spirals") 
+```
+
+
+
+
+
+Frequency  
+
+
+```{r}
+wtsne_spirals <- wtsne::wtsne(uni_spirals[,imp_spirals$Feature],col_weights = imp_spirals$Frequency)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_spirals$class) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_spirals,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="spirals") 
+```
+
+

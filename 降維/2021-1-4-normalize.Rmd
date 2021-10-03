@@ -1,0 +1,108 @@
+---
+title: "col-weight-T-sne"
+author: '610811101'
+date: "2021/1/4"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+一.
+先加權重後做PCA，這時候是不是有沒有做normalize，都不影響我加的權重?
+
+二.
+加權重前有沒有做normalize，是否有影響?
+
+
+```{r}
+library(xgboost)
+library(highcharter)
+library(wtsne)
+library(magrittr)
+```
+
+
+
+```{r}
+uni_iris <- unique(iris)
+```
+
+```{r}
+xgb_iris <- xgb.DMatrix(data=as.matrix(uni_iris[,-5]),label=as.numeric(uni_iris[,5])-1)
+iris_num_class <- length(levels(uni_iris$Species))
+xgb_fit <- xgboost(data = xgb_iris, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "multi:softprob",
+num_class= iris_num_class,
+verbose = 0
+)
+imp_iris <- xgb.importance(model = xgb_fit)
+```
+
+
+# 有normalize 
+
+```{r}
+wtsne_iris <- wtsne::wtsne(uni_iris[,imp_iris$Feature],col_weights = imp_iris$Frequency)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_iris$Species) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_iris,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+```
+
+
+# 沒有normalize  
+
+
+```{r}
+wtsne_iris <- wtsne::wtsne(uni_iris[,imp_iris$Feature],col_weights = imp_iris$Frequency,normalize = F)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_iris$Species) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_iris,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+```
+
+
+
+# 權重前normalize   
+
+
+```{r}
+wtsne_iris <- wtsne::wtsne(normalize_input(as.matrix(uni_iris[,imp_iris$Feature])),col_weights = imp_iris$Frequency)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_iris$Species) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_iris,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+```
+
+
+
+```{r}
+wtsne_iris <- wtsne::wtsne(normalize_input(as.matrix(uni_iris[,imp_iris$Feature])),col_weights = imp_iris$Frequency,normalize = F)%$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(uni_iris$Species) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(wtsne_iris,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="iris") 
+```
+

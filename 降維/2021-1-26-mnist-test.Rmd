@@ -1,0 +1,487 @@
+---
+title: "wtsne for mnist"
+author: '610811101'
+date: "2021/1/26"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+```{r include=FALSE}
+library(highcharter)
+library(tidyverse)
+library(tidytext)
+library(Rtsne)
+library(wtsne)
+library(magrittr)
+library(xgboost)
+```
+
+```{r}
+mnist <- snedata::download_mnist()
+```
+
+
+```{r}
+
+weight_index <- function(data,pred,seed = NULL,N = NROW(data)*2){
+  lottery <- sapply(1:N, function(x){
+    if(!is.null(seed)){
+      set.seed(seed+x)
+    }
+    sample(1:NROW(data),2)
+  }) %>% t()
+  data_dist <- (data[lottery[,1],]-data[lottery[,2],])^2 %>% rowSums()
+  if(!is.vector(pred)){
+    pred_dist <- (pred[lottery[,1],]-pred[lottery[,2],])^2 %>% rowSums()
+  }else{
+    pred_dist <- (pred[lottery[,1]]-pred[lottery[,2]])^2 
+  }
+  
+  proportion <- data.frame("data" = data_dist,"data+pred" = data_dist+pred_dist) %>% sqrt()
+  allproportion <- colSums(proportion)
+  allproportion <- allproportion[1]/allproportion[2]
+  
+  return(list("proportion"=proportion,"allproportion"=allproportion))
+}
+
+weight_index_dist <- function(data,pred){
+  t <- Sys.time()
+  dist_data <- dist(data)
+  dist_pred <- dist(pred)
+  proportion <- sum(dist_data)/sum(sqrt(dist_data^2+dist_pred^2))
+  return(list("proportion"=proportion,"times"= Sys.time()-t))
+}
+```
+
+```{r}
+weight_by_index <- function(now_index,want_index,data,pred){
+  if(now_index>1|now_index<=0|want_index>1|want_index<=0){
+    stop("index need between 0 and 1 ")    
+  }
+  mul <- ((1-want_index)/(1-now_index))*(now_index/want_index)
+  if(is.vector(pred)){
+    c(rep(1,ncol(data)),mul)
+  }else{
+    c(rep(1,ncol(data)),rep(mul,ncol(pred)))
+  }
+}
+```
+
+
+# mnist 2
+
+
+
+```{r }
+index <- sample(1:nrow(mnist),65000)
+mnist$class <- as.numeric(mnist$Label) %% 3
+
+xgb_mnist <- xgb.DMatrix(data=as.matrix(mnist[index,1:784]),label=mnist$class[index])
+mnist_num_class <- length(unique(mnist$class))
+xgb_fit <- xgboost(data = xgb_mnist, 
+eta = 0.5,
+max_depth = 10, 
+nround=25, 
+subsample = 0.7,
+colsample_bytree = 0.7,
+objective = "multi:softprob",
+num_class= mnist_num_class,
+verbose = 0
+)
+label <- predict(xgb_fit,as.matrix(mnist[-index,1:784]),reshape=T) %>%
+  as.data.frame() %>%
+  `colnames<-`(levels(mnist$class))
+```
+
+
+
+
+
+## find good N
+
+### n = 5000, N = 500
+
+```{r }
+weight_index_mnist <- rep(NA,1000)
+for(i in 1:1000){
+  weight_index_mnist[i] <- weight_index(mnist[-index,1:784],label,N = 500)$allproportion
+}
+plot(density(weight_index_mnist))
+```
+
+### n = 5000, N = 2500
+
+```{r }
+weight_index_mnist <- rep(NA,1000)
+for(i in 1:1000){
+  weight_index_mnist[i] <- weight_index(mnist[-index,1:784],label,N = 2500)$allproportion
+}
+plot(density(weight_index_mnist))
+```
+
+### n = 5000, N = 5000
+
+```{r }
+weight_index_mnist <- rep(NA,1000)
+for(i in 1:1000){
+  weight_index_mnist[i] <- weight_index(mnist[-index,1:784],label,N = 5000)$allproportion
+}
+plot(density(weight_index_mnist))
+```
+
+### n = 5000, N = 10000
+
+```{r }
+weight_index_mnist <- rep(NA,1000)
+for(i in 1:1000){
+  weight_index_mnist[i] <- weight_index(mnist[-index,1:784],label,N = 10000)$allproportion
+}
+plot(density(weight_index_mnist))
+```
+
+
+
+
+
+
+
+# dist 
+
+目前指標
+
+```{r}
+(mnist_index <- weight_index_dist(mnist[-index,1:784],label)$proportion)
+```
+
+
+
+### index = 0.9
+
+```{r }
+w <- weight_by_index(mnist_index,0.9,mnist[-index,1:784],label)
+set.seed(610811101)
+mnist_tsne_2 <- cbind(mnist[-index,1:784],label) %>% 
+  wtsne(check_duplicates = F,col_weights = w) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+### index = 0.8
+
+```{r }
+w <- weight_by_index(mnist_index,0.8,mnist[-index,1:784],label)
+set.seed(610811101)
+mnist_tsne_2 <- cbind(mnist[-index,1:784],label) %>% 
+  wtsne(check_duplicates = F,col_weights = w) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+### index = 0.75
+
+```{r }
+w <- weight_by_index(mnist_index,0.75,mnist[-index,1:784],label)
+set.seed(610811101)
+mnist_tsne_2 <- cbind(mnist[-index,1:784],label) %>% 
+  wtsne(check_duplicates = F,col_weights = w) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+### index = 0.6
+
+```{r }
+w <- weight_by_index(mnist_index,0.6,mnist[-index,1:784],label)
+set.seed(610811101)
+mnist_tsne_2 <- cbind(mnist[-index,1:784],label) %>% 
+  wtsne(check_duplicates = F,col_weights = w) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+### index = 0.5
+
+```{r }
+w <- weight_by_index(mnist_index,0.5,mnist[-index,1:784],label)
+set.seed(610811101)
+mnist_tsne_2 <- cbind(mnist[-index,1:784],label) %>% 
+  wtsne(check_duplicates = F,col_weights = w) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+### index = 0.25
+
+```{r }
+w <- weight_by_index(mnist_index,0.25,mnist[-index,1:784],label)
+set.seed(610811101)
+mnist_tsne_2 <- cbind(mnist[-index,1:784],label) %>% 
+  wtsne(check_duplicates = F,col_weights = w) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+
+
+
+
+
+
+
+
+
+# normalize -> sample 
+
+仍然不能跑  
+
+目前指標
+
+```{r eval=FALSE, include=FALSE}
+mnist$Label <- NULL
+mnist <- as.matrix(mnist)
+mnist[,1:784] <- normalize_input(mnist[,1:784])
+
+(mnist_index <- weight_index(mnist[-index,1:784],label,N = 10000)$allproportion)
+```
+
+
+
+### index = 0.9
+
+```{r eval=FALSE, include=FALSE}
+w <- weight_by_index(mnist_index,0.9,mnist[-index,1:784],label)
+set.seed(610811101)
+mnist_tsne_2 <- cbind(mnist[-index,1:784],label) %>% 
+  wtsne(check_duplicates = F,col_weights = w) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+### index = 0.8
+
+```{r eval=FALSE, include=FALSE}
+w <- weight_by_index(mnist_index,0.8,mnist[-index,1:784],label)
+set.seed(610811101)
+mnist_tsne_2 <- cbind(mnist[-index,1:784],label) %>% 
+  wtsne(check_duplicates = F,col_weights = w) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+### index = 0.75
+
+```{r eval=FALSE, include=FALSE}
+w <- weight_by_index(mnist_index,0.75,mnist[-index,1:784],label)
+set.seed(610811101)
+mnist_tsne_2 <- cbind(mnist[-index,1:784],label) %>% 
+  wtsne(check_duplicates = F,col_weights = w) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+### index = 0.6
+
+```{r eval=FALSE, include=FALSE}
+w <- weight_by_index(mnist_index,0.6,mnist[-index,1:784],label)
+set.seed(610811101)
+mnist_tsne_2 <- cbind(mnist[-index,1:784],label) %>% 
+  wtsne(check_duplicates = F,col_weights = w) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+### index = 0.5
+
+```{r eval=FALSE, include=FALSE}
+w <- weight_by_index(mnist_index,0.5,mnist[-index,1:784],label)
+set.seed(610811101)
+mnist_tsne_2 <- cbind(mnist[-index,1:784],label) %>% 
+  wtsne(check_duplicates = F,col_weights = w) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+### index = 0.25
+
+```{r eval=FALSE, include=FALSE}
+w <- weight_by_index(mnist_index,0.25,mnist[-index,1:784],label)
+set.seed(610811101)
+mnist_tsne_2 <- cbind(mnist[-index,1:784],label) %>% 
+  wtsne(check_duplicates = F,col_weights = w) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+
+
+# normalize -> dist 
+
+目前指標
+
+```{r}
+(mnist_index <- weight_index_dist(mnist[-index,1:784],label)$proportion)
+```
+
+
+
+### index = 0.9
+
+```{r }
+w <- weight_by_index(mnist_index,0.9,mnist[-index,1:784],label)
+set.seed(610811101)
+mnist_tsne_2 <- cbind(mnist[-index,1:784],label) %>% 
+  wtsne(check_duplicates = F,col_weights = w) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+### index = 0.8
+
+```{r }
+w <- weight_by_index(mnist_index,0.8,mnist[-index,1:784],label)
+set.seed(610811101)
+mnist_tsne_2 <- cbind(mnist[-index,1:784],label) %>% 
+  wtsne(check_duplicates = F,col_weights = w) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+### index = 0.75
+
+```{r }
+w <- weight_by_index(mnist_index,0.75,mnist[-index,1:784],label)
+set.seed(610811101)
+mnist_tsne_2 <- cbind(mnist[-index,1:784],label) %>% 
+  wtsne(check_duplicates = F,col_weights = w) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+### index = 0.6
+
+```{r }
+w <- weight_by_index(mnist_index,0.6,mnist[-index,1:784],label)
+set.seed(610811101)
+mnist_tsne_2 <- cbind(mnist[-index,1:784],label) %>% 
+  wtsne(check_duplicates = F,col_weights = w) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+### index = 0.5
+
+```{r }
+w <- weight_by_index(mnist_index,0.5,mnist[-index,1:784],label)
+set.seed(610811101)
+mnist_tsne_2 <- cbind(mnist[-index,1:784],label) %>% 
+  wtsne(check_duplicates = F,col_weights = w) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```
+
+### index = 0.25
+
+```{r }
+w <- weight_by_index(mnist_index,0.25,mnist[-index,1:784],label)
+set.seed(610811101)
+mnist_tsne_2 <- cbind(mnist[-index,1:784],label) %>% 
+  wtsne(check_duplicates = F,col_weights = w) %$% 
+  Y %>% 
+  as.data.frame() %>% 
+  cbind(mnist$class[-index]) %>% 
+  `names<-`(c("x","y","group"))
+
+hchart(mnist_tsne_2,"scatter", hcaes(x=x,y=y,group = group)) %>%
+  hc_title(text ="mnist") 
+```

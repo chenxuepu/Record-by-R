@@ -1,0 +1,63 @@
+---
+title: "t-sne-define"
+author: '610811101'
+date: "2020/11/20"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+
+```{r include=FALSE}
+library(highcharter)
+library(tidyverse)
+library(tidytext)
+library(Rtsne)
+library(magrittr)
+```
+
+
+
+
+```{r}
+pca <- prcomp(iris[,1:4])
+Y_init <- as.matrix(pca$x[,1:2])
+set.seed(610811101)
+iris_tsne <- Rtsne(iris[,1:4],check_duplicates = F,Y_init = Y_init)
+set.seed(610811101)
+iris_tsne_2 <- Rtsne(iris[,1:4],check_duplicates = F)
+iris_tsne$Y
+iris_tsne_2$Y
+iris_tsne$Y==iris_tsne_2$Y
+```
+
+
+
+
+```{r}
+iris_tsne %$%
+  Y %>%
+  as.data.frame() %>%
+  cbind(iris$Species) %>%
+  `names<-`(c("x","y","Species")) %>%
+  hchart("scatter", hcaes(x=x,y=y,group = Species)) %>%
+  hc_title(text ="iris_Y_init") 
+```
+
+
+
+```{r}
+iris_tsne_2 %$%
+  Y %>%
+  as.data.frame() %>%
+  cbind(iris$Species) %>%
+  `names<-`(c("x","y","Species")) %>%
+  hchart("scatter", hcaes(x=x,y=y,group = Species)) %>%
+  hc_title(text ="iris") 
+```
+
